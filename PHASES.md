@@ -58,11 +58,16 @@ Full write-up: **[docs/PHASE2.md](docs/PHASE2.md)**
 
 ---
 
-## Phase 4 — Voice depth (planned)
+## Phase 4 — Voice depth ✅
 
-- Full turn-by-turn narration from maneuver steps
-- Voice-driven reporting (“road blocked here”)
-- Mute / language preferences
+Full write-up: **[docs/PHASE4.md](docs/PHASE4.md)**
+
+- [x] Voice module (`lib/voice.ts`) with mute persistence
+- [x] OSRM steps → spoken turn-by-turn on navigation screen
+- [x] Reroute explanation spoken (respects mute)
+- [x] en-IN voice preference when available
+- [ ] Voice-driven reporting (“road blocked here”) — later
+- [ ] Cloud TTS optional upgrade — later
 
 ---
 

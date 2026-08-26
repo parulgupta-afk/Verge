@@ -1,11 +1,19 @@
 /**
- * Verge V1 routing — uses public OSRM demo server (no API key).
- * For production, swap to Mapbox Directions or self-hosted OSRM.
+ * Verge routing — public OSRM (no API key for demo).
+ * Phase 4: steps for turn-by-turn voice.
  */
 
 export interface LatLng {
   lng: number;
   lat: number;
+}
+
+export interface RouteStep {
+  instruction: string;
+  name: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  distanceText: string;
 }
 
 export interface RouteResult {
@@ -14,6 +22,7 @@ export interface RouteResult {
   durationSeconds: number;
   distanceText: string;
   durationText: string;
+  steps: RouteStep[];
   legs: Array<{ summary?: string }>;
 }
 
@@ -30,12 +39,18 @@ function formatDuration(s: number): string {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
-/**
- * Fetch a driving route between two points via OSRM.
- * Optional exclude: not fully supported by public OSRM for arbitrary segments;
- * V1 best-effort is to request the route and let the client detect blocked
- * segments that intersect the polyline, then re-request with a via/avoid heuristic later.
- */
+function stepInstruction(step: any): string {
+  const man = step.maneuver || {};
+  const type = (man.type || '').replace(/_/g, ' ');
+  const modifier = (man.modifier || '').replace(/_/g, ' ');
+  const name = step.name || step.ref || '';
+  if (type === 'arrive') return name ? `Arrive at ${name}` : 'You have arrived';
+  if (type === 'depart') return name ? `Head out on ${name}` : 'Start navigation';
+  const action = [type, modifier].filter(Boolean).join(' ');
+  if (name) return `${action} onto ${name}`;
+  return action || 'Continue';
+}
+
 export async function fetchRoute(
   origin: LatLng,
   destination: LatLng
@@ -43,7 +58,7 @@ export async function fetchRoute(
   const coords = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
   const url =
     `https://router.project-osrm.org/route/v1/driving/${coords}` +
-    `?overview=full&geometries=geojson&steps=false`;
+    `?overview=full&geometries=geojson&steps=true`;
 
   try {
     const res = await fetch(url);
@@ -58,12 +73,25 @@ export async function fetchRoute(
     }
     const route = data.routes[0];
     const geometry = route.geometry as GeoJSON.LineString;
+    const steps: RouteStep[] = [];
+    for (const leg of route.legs || []) {
+      for (const step of leg.steps || []) {
+        steps.push({
+          instruction: stepInstruction(step),
+          name: step.name || '',
+          distanceMeters: step.distance || 0,
+          durationSeconds: step.duration || 0,
+          distanceText: formatDistance(step.distance || 0),
+        });
+      }
+    }
     return {
       geometry,
       distanceMeters: route.distance,
       durationSeconds: route.duration,
       distanceText: formatDistance(route.distance),
       durationText: formatDuration(route.duration),
+      steps,
       legs: route.legs || [],
     };
   } catch (e) {
@@ -72,10 +100,9 @@ export async function fetchRoute(
   }
 }
 
-/** Rough check: does any point of the route fall near a blocked segment's bbox? */
 export function routeIntersectsBlocked(
   routeGeometry: GeoJSON.LineString,
-  segments: Array<{ status: string; geometry?: GeoJSON.LineString; confidence: number }>
+  segments: Array<{ status: string; geometry?: GeoJSON.LineString; confidence: number; name?: string }>
 ): { hit: boolean; segmentName?: string } {
   const blocked = segments.filter(
     (s) => (s.status === 'blocked' || s.status === 'partial') && s.confidence >= 60 && s.geometry
@@ -95,14 +122,13 @@ export function routeIntersectsBlocked(
 
     for (const [lng, lat] of routeGeometry.coordinates) {
       if (lng >= minLon && lng <= maxLon && lat >= minLat && lat <= maxLat) {
-        return { hit: true, segmentName: (seg as any).name || 'a reported road' };
+        return { hit: true, segmentName: seg.name || 'a reported road' };
       }
     }
   }
   return { hit: false };
 }
 
-/** Build a short plain-language reroute explanation (MVP — no LLM required). */
 export function buildRerouteExplanation(opts: {
   segmentName?: string;
   oldDurationText?: string;
@@ -116,16 +142,5 @@ export function buildRerouteExplanation(opts: {
   return `Rerouting. ${road} was reported blocked by multiple users.${delta}`;
 }
 
-/** Speak text via Web Speech API (best-effort). */
-export function speak(text: string): void {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return;
-  try {
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    u.lang = 'en-IN';
-    window.speechSynthesis.speak(u);
-  } catch {
-    /* ignore */
-  }
-}
+// Back-compat: App still imports speak from routing
+export { speak, stopSpeaking, isVoiceMuted, setVoiceMuted, initVoices } from './voice';

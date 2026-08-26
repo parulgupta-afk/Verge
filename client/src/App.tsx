@@ -20,6 +20,7 @@ import {
   routeIntersectsBlocked,
   buildRerouteExplanation,
   speak,
+  initVoices,
   type RouteResult,
 } from './lib/routing';
 import { isSupabaseConfigured } from './lib/supabase';
@@ -98,6 +99,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('verge_settings', JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    initVoices();
+  }, []);
 
   // Load segments from Supabase when configured; subscribe to realtime updates
   useEffect(() => {
@@ -504,6 +509,11 @@ export default function App() {
                   durationText: activeRoute.durationText,
                   distanceText: activeRoute.distanceText,
                   rerouteMessage,
+                  steps: activeRoute.steps?.map((s) => ({
+                    instruction: s.instruction,
+                    name: s.name,
+                    distanceText: s.distanceText,
+                  })),
                 }
               : null
           }

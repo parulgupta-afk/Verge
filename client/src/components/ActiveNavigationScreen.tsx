@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { CornerUpLeft, ArrowUp, ShieldCheck, AlertTriangle, Settings, Search, X, Volume2, VolumeX, Navigation } from 'lucide-react';
 import { ASSETS } from '../data/mockData';
+import { speak, stopSpeaking, setVoiceMuted, initVoices } from '../lib/voice';
+
+interface NavStep {
+  instruction: string;
+  street: string;
+  distance: string;
+  next: string;
+  icon: string;
+}
 
 interface ActiveNavigationScreenProps {
   onExit: () => void;
@@ -11,6 +20,7 @@ interface ActiveNavigationScreenProps {
     durationText: string;
     distanceText: string;
     rerouteMessage?: string | null;
+    steps?: Array<{ instruction: string; name: string; distanceText: string }>;
   } | null;
 }
 
@@ -23,16 +33,37 @@ export const ActiveNavigationScreen: React.FC<ActiveNavigationScreenProps> = ({
   const [distanceToTurn, setDistanceToTurn] = useState<number>(0.5);
   const [remainingMinutes, setRemainingMinutes] = useState<number>(12);
   const [totalDistance, setTotalDistance] = useState<number>(4.2);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('verge_voice_muted') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [isSimulating, setIsSimulating] = useState<boolean>(true);
 
-  const steps = [
-    { instruction: 'Turn Left', street: 'on Main St', distance: '0.5 MILES', next: 'Then continue straight for 2.1 mi', icon: 'left' },
-    { instruction: 'Continue Straight', street: 'on I-5 Express Link', distance: '2.1 MILES', next: 'In 1.5 mi, take Exit 165A', icon: 'straight' },
-    { instruction: 'Take Exit 165A', street: 'toward Mercer St', distance: '0.3 MILES', next: 'Hazard ahead: 94% verified slowdown', icon: 'right' },
-    { instruction: 'Arrive at Destination', street: 'Bellevue Center', distance: '0.1 MILES', next: 'Route complete', icon: 'arrive' }
+  const fallbackSteps: NavStep[] = [
+    { instruction: 'Continue', street: 'on your route', distance: routeSummary?.distanceText || '—', next: 'Follow the blue line', icon: 'straight' },
+    { instruction: 'Arrive at Destination', street: routeSummary?.destinationName || 'Destination', distance: '0.1 km', next: 'Route complete', icon: 'arrive' },
   ];
+
+  const steps: NavStep[] =
+    routeSummary?.steps && routeSummary.steps.length > 0
+      ? routeSummary.steps.map((s, i, arr) => ({
+          instruction: s.instruction,
+          street: s.name ? `on ${s.name}` : '',
+          distance: s.distanceText,
+          next: arr[i + 1]?.instruction || 'Continue to destination',
+          icon: /left/i.test(s.instruction)
+            ? 'left'
+            : /right/i.test(s.instruction)
+              ? 'right'
+              : /arrive/i.test(s.instruction)
+                ? 'arrive'
+                : 'straight',
+        }))
+      : fallbackSteps;
 
   // Drive progress simulation tick
   useEffect(() => {
@@ -41,7 +72,10 @@ export const ActiveNavigationScreen: React.FC<ActiveNavigationScreenProps> = ({
     const interval = setInterval(() => {
       setDistanceToTurn((prev) => {
         if (prev <= 0.1) {
-          setCurrentStepIndex((curr) => (curr + 1) % steps.length);
+          setCurrentStepIndex((curr) => {
+            const next = (curr + 1) % steps.length;
+            return next;
+          });
           return 0.8;
         }
         return Number((prev - 0.1).toFixed(1));
@@ -53,7 +87,28 @@ export const ActiveNavigationScreen: React.FC<ActiveNavigationScreenProps> = ({
     return () => clearInterval(interval);
   }, [isSimulating, steps.length]);
 
-  const currentStep = steps[currentStepIndex];
+  // Phase 4: voice — init + speak current maneuver
+  useEffect(() => {
+    initVoices();
+  }, []);
+
+  useEffect(() => {
+    if (isMuted) {
+      stopSpeaking();
+      return;
+    }
+    const step = steps[currentStepIndex];
+    if (!step) return;
+    const line = [step.instruction, step.street].filter(Boolean).join(' ');
+    speak(line);
+  }, [currentStepIndex, isMuted]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!routeSummary?.rerouteMessage || isMuted) return;
+    speak(routeSummary.rerouteMessage);
+  }, [routeSummary?.rerouteMessage, isMuted]);
+
+  const currentStep = steps[currentStepIndex] || steps[0];
 
   return (
     <div className="fixed inset-0 z-50 bg-[#10131b] text-[#e1e2ed] flex flex-col justify-between select-none overflow-hidden animate-in fade-in duration-300">
@@ -150,7 +205,12 @@ export const ActiveNavigationScreen: React.FC<ActiveNavigationScreenProps> = ({
           </div>
 
           <button
-            onClick={() => setIsMuted(!isMuted)}
+            onClick={() => {
+              const next = !isMuted;
+              setIsMuted(next);
+              setVoiceMuted(next);
+              if (next) stopSpeaking();
+            }}
             className="text-[#8c90a0] hover:text-[#e1e2ed] p-1 rounded-full cursor-pointer"
             title={isMuted ? 'Unmute voice navigation' : 'Mute voice navigation'}
           >
