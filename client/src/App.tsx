@@ -26,6 +26,7 @@ import {
 } from './lib/routing';
 import { scoreRoute, rankRoutes, buildComparisonSummary } from './lib/risk';
 import { isSupabaseConfigured } from './lib/supabase';
+import { ensureAnonymousAuth } from './lib/auth';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { NavigationHeader } from './components/NavigationHeader';
 import { BottomNavBar } from './components/BottomNavBar';
@@ -131,6 +132,7 @@ export default function App() {
 
   useEffect(() => {
     initVoices();
+    ensureAnonymousAuth();
   }, []);
 
   // Load segments from Supabase when configured; subscribe to realtime updates
@@ -205,7 +207,7 @@ export default function App() {
       })
     );
     // Persist when Supabase is configured
-    voteOnSegment(segmentId, 'confirm');
+    voteOnSegment(segmentId, 'confirm', userLocation);
   };
 
   const handleRefuteSegment = (segmentId: string) => {
@@ -222,7 +224,7 @@ export default function App() {
         };
       })
     );
-    voteOnSegment(segmentId, 'refute');
+    voteOnSegment(segmentId, 'refute', userLocation);
   };
 
 
@@ -361,6 +363,7 @@ export default function App() {
       type: newReportData.status,
       notes: newReportData.notes,
       mediaUrl: newReportData.photoUrl,
+      location: userLocation,
     });
   };
 

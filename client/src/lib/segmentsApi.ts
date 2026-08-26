@@ -2,6 +2,7 @@ import { supabase, isSupabaseConfigured } from './supabase';
 import type { RoadSegment, ReportStatus } from '../types';
 import { INDIA_SEED_SEGMENTS } from '../data/indiaSeedSegments';
 import { getDeviceId } from './identity';
+import { ensureAnonymousAuth } from './auth';
 
 /** Map DB row → frontend RoadSegment */
 function rowToSegment(row: any): RoadSegment {
@@ -82,22 +83,43 @@ export async function fetchSegments(city?: string): Promise<RoadSegment[]> {
   return data.map(rowToSegment);
 }
 
-/** Submit a report and optimistically update confidence locally; server/DB does real calc. */
+const VOTE_RADIUS_M = 5000; // 5 km — PRD proximity rule
+
+export type GeoPoint = { lat: number; lng: number };
+
+/** Submit a report; confidence is recalculated ONLY via Postgres RPC (source of truth). */
 export async function submitReport(params: {
   segmentId: string;
   type: ReportStatus;
   notes?: string;
   mediaUrl?: string;
+  location?: GeoPoint | null;
 }): Promise<{ ok: boolean; error?: string }> {
   if (!isSupabaseConfigured || !supabase) {
-    return { ok: true }; // local mode — App handles state
+    return { ok: true };
+  }
+
+  const { appUserId, deviceId } = await ensureAnonymousAuth();
+  const actor = appUserId || deviceId;
+  const { data: allowed } = await supabase.rpc('check_rate_limit', {
+    p_actor: actor,
+    p_action: 'report',
+    p_max: 15,
+    p_window_minutes: 60,
+  });
+  if (allowed === false) {
+    return { ok: false, error: 'Rate limit: too many reports. Try again later.' };
   }
 
   const { error } = await supabase.from('reports').insert({
     segment_id: params.segmentId,
+    reporter_id: appUserId,
     type: params.type === 'unknown' ? 'blocked' : params.type,
     notes: params.notes ?? null,
     media_url: params.mediaUrl ?? null,
+    // media_verified left NULL until optional vision check
+    reporter_lat: params.location?.lat ?? null,
+    reporter_lng: params.location?.lng ?? null,
   });
 
   if (error) {
@@ -105,63 +127,92 @@ export async function submitReport(params: {
     return { ok: false, error: error.message };
   }
 
-  // Trigger confidence recalculation via RPC if available
-  try {
-    await supabase.rpc('recalculate_segment_confidence', {
-      p_segment_id: params.segmentId,
-    });
-  } catch {
-    /* RPC may not exist yet */
-  }
+  await supabase.rpc('recalculate_segment_confidence', {
+    p_segment_id: params.segmentId,
+  });
 
   return { ok: true };
 }
 
-/** Confirm or refute a segment (deduped by device_id when migration 002 is applied) */
+/**
+ * Confirm / refute with:
+ * - real user_id when anonymous auth works
+ * - 5 km proximity check when GPS provided
+ * - rate limit
+ * - confidence via Postgres RPC only
+ */
 export async function voteOnSegment(
   segmentId: string,
-  type: 'confirm' | 'refute'
+  type: 'confirm' | 'refute',
+  location?: GeoPoint | null
 ): Promise<{ ok: boolean; error?: string }> {
-  const deviceId = getDeviceId();
   if (!isSupabaseConfigured || !supabase) {
     return { ok: true };
   }
 
-  // Prefer device-scoped row so one browser = one vote per segment
-  const payload = {
-    segment_id: segmentId,
-    type,
-    device_id: deviceId,
-  };
+  const { appUserId, deviceId } = await ensureAnonymousAuth();
+  const actor = appUserId || deviceId;
 
-  const { error } = await supabase.from('confirmations').upsert(payload, {
-    onConflict: 'segment_id,device_id',
-    ignoreDuplicates: false,
+  const { data: allowed } = await supabase.rpc('check_rate_limit', {
+    p_actor: actor,
+    p_action: 'vote',
+    p_max: 30,
+    p_window_minutes: 60,
   });
+  if (allowed === false) {
+    return { ok: false, error: 'Rate limit: too many votes. Try again later.' };
+  }
 
-  if (error) {
-    // Fallback: plain insert (works before unique index exists)
-    const { error: insertError } = await supabase.from('confirmations').insert(payload);
-    if (insertError) {
-      // Last resort without device_id column
-      const { error: basicError } = await supabase.from('confirmations').insert({
-        segment_id: segmentId,
-        type,
-      });
-      if (basicError) {
-        console.error('[Verge] voteOnSegment error:', basicError.message);
-        return { ok: false, error: basicError.message };
-      }
+  // Proximity: require location within 5 km of segment when coords provided
+  if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
+    const { data: distM, error: distErr } = await supabase.rpc('segment_distance_m', {
+      p_segment_id: segmentId,
+      p_lng: location.lng,
+      p_lat: location.lat,
+    });
+    if (!distErr && distM != null && Number(distM) > VOTE_RADIUS_M) {
+      return {
+        ok: false,
+        error: `Too far from this road to vote (${Math.round(Number(distM) / 1000)} km away; need ≤ 5 km).`,
+      };
     }
   }
 
-  try {
-    await supabase.rpc('recalculate_segment_confidence', {
-      p_segment_id: segmentId,
+  const payload: Record<string, unknown> = {
+    segment_id: segmentId,
+    type,
+    device_id: deviceId,
+    user_id: appUserId,
+    voter_lat: location?.lat ?? null,
+    voter_lng: location?.lng ?? null,
+  };
+
+  // Prefer user-scoped unique vote
+  let error;
+  if (appUserId) {
+    const res = await supabase.from('confirmations').upsert(payload, {
+      onConflict: 'segment_id,user_id',
     });
-  } catch {
-    /* RPC may not exist yet */
+    error = res.error;
+  } else {
+    const res = await supabase.from('confirmations').upsert(payload, {
+      onConflict: 'segment_id,device_id',
+    });
+    error = res.error;
   }
+
+  if (error) {
+    const { error: insertError } = await supabase.from('confirmations').insert(payload);
+    if (insertError) {
+      console.error('[Verge] voteOnSegment error:', insertError.message);
+      return { ok: false, error: insertError.message };
+    }
+  }
+
+  // Single source of truth
+  await supabase.rpc('recalculate_segment_confidence', {
+    p_segment_id: segmentId,
+  });
 
   return { ok: true };
 }
