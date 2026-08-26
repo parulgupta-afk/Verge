@@ -54,7 +54,9 @@ See **[docs/DEPLOY.md](docs/DEPLOY.md)** for Vercel (client) + Render (server) +
 
 ## Phases
 
-See **[PHASES.md](PHASES.md)** for the full roadmap and checklist.
+See **[PHASES.md](PHASES.md)** for the full roadmap.
+
+**Phase 2 package:** [docs/PHASE2.md](docs/PHASE2.md)
 
 **Current tags:** `phase-1-foundation`, `phase-3-routing`, `v0.1.0-india-mvp`
 

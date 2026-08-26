@@ -21,21 +21,22 @@ Each phase is independently demoable.
 
 ---
 
-## Phase 2 — Real-time & identity ✅ (partial)
+## Phase 2 — Real-time & identity ✅
 
-**Goal:** Multi-user live updates + stable local identity
+**Goal:** Multi-user readiness — Realtime path, device identity, vote dedupe
 
-- [x] Supabase Realtime subscription code
+Full write-up: **[docs/PHASE2.md](docs/PHASE2.md)**
+
+- [x] Supabase Realtime subscription
 - [x] Live / Local data-source indicator on map
-- [x] Stable `device_id` in localStorage for future vote dedupe
-- [x] Migration `002_phase2_device_votes.sql` (optional device_id on confirmations)
+- [x] Stable `device_id` in localStorage
+- [x] Migration `002_phase2_device_votes.sql`
 - [x] Votes upsert with `device_id` (one vote per device per segment)
-- [x] Fixed `package-lock.json` + `.npmrc` for official npm registry
-- [ ] Live multi-client demo with your Supabase project + Realtime enabled
-- [ ] Reporter trust weights persisted
-- [ ] Supabase Auth (anonymous + email)
+- [x] Official npm registry (`.npmrc` + fixed lockfile for Windows)
+- [ ] Your Supabase project + Realtime enabled (ops step, not code)
+- [ ] Reporter trust weights + Supabase Auth → Phase 2+ / later
 
-**Demo:** Badge shows “Live · Supabase” when keys are set; two clients update via Realtime.
+**Demo:** Badge shows Live or Local; with Supabase keys, two clients sync via Realtime.
 
 ---
 
@@ -108,5 +109,7 @@ See `docs/DEPLOY.md` — Vercel (`client/`) + Render (`server/`) + Supabase.
 | `phase-1-foundation` | Map + confidence + schema |
 | `phase-3-routing` | Search → route → speech |
 | `phase-2-realtime` | Live badge + device identity |
+| `phase-2-complete` | Full Phase 2 package |
 | `v0.1.0-india-mvp` | India MVP |
 | `v0.2.0-phase2` | Phase 2 partial |
+| `v0.2.1-npm-fix` | npm lockfile fix |
