@@ -99,7 +99,8 @@ export const ActiveNavigationScreen: React.FC<ActiveNavigationScreenProps> = ({
     }
     const step = steps[currentStepIndex];
     if (!step) return;
-    const line = [step.instruction, step.street].filter(Boolean).join(' ');
+    const dist = step.distance && step.distance !== '—' ? ` In ${step.distance}.` : '';
+    const line = [step.instruction, step.street].filter(Boolean).join(' ') + dist;
     speak(line);
   }, [currentStepIndex, isMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 

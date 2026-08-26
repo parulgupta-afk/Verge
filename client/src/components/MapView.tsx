@@ -16,6 +16,9 @@ interface MapViewProps {
   routeGeometry?: GeoJSON.LineString | null;
   /** Phase 8: exaggerate line width by confidence */
   heatmapMode?: boolean;
+  /** Auto-request browser GPS and follow user */
+  trackUser?: boolean;
+  onUserLocation?: (pos: { lng: number; lat: number }) => void;
 }
 
 export function MapView({
@@ -27,6 +30,8 @@ export function MapView({
   className = '',
   routeGeometry = null,
   heatmapMode = false,
+  trackUser = true,
+  onUserLocation,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -49,16 +54,34 @@ export function MapView({
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
-    map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-      }),
-      'top-right'
-    );
+    const geo = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showAccuracyCircle: true,
+      showUserLocation: true,
+    });
+    map.addControl(geo, 'top-right');
 
     map.on('load', () => {
       setMapReady(true);
+      if (trackUser) {
+        // Auto-show user location when permission allows
+        setTimeout(() => {
+          try {
+            geo.trigger();
+          } catch {
+            /* user may deny */
+          }
+        }, 800);
+      }
+    });
+
+    geo.on('geolocate', (e: any) => {
+      const lng = e?.coords?.longitude;
+      const lat = e?.coords?.latitude;
+      if (typeof lng === 'number' && typeof lat === 'number' && onUserLocation) {
+        onUserLocation({ lng, lat });
+      }
     });
 
     mapRef.current = map;

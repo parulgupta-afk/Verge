@@ -43,6 +43,7 @@ import { StatusUpdateModal } from './components/StatusUpdateModal';
 import { OfficialFeedsPanel } from './components/OfficialFeedsPanel';
 import { SocialPanel } from './components/SocialPanel';
 import { AdminDashboard } from './components/AdminDashboard';
+import { RoutePlanner } from './components/RoutePlanner';
 import { computeAdminStats } from './lib/adminStats';
 import {
   loadCommutes,
@@ -69,6 +70,8 @@ export default function App() {
   const [showSocial, setShowSocial] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [heatmapMode, setHeatmapMode] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lng: number; lat: number } | null>(null);
+  const [showRoutePlanner, setShowRoutePlanner] = useState(false);
   const [commutes, setCommutes] = useState<SavedCommute[]>(() => loadCommutes());
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [offlineBanner, setOfflineBanner] = useState<string | null>(null);
@@ -226,16 +229,22 @@ export default function App() {
   // ——— V1 Routing (OSRM) ———
   const [routeDestination, setRouteDestination] = useState<Place | null>(null);
 
-  const navigateToPlace = async (place: Place) => {
+  const resolveOriginForCity = (city: string) => {
+    if (userLocation) return userLocation;
+    return city === 'Bangalore' ? DEFAULT_ORIGIN_BLR : DEFAULT_ORIGIN_DELHI;
+  };
+
+  const runRouteCalculation = async (
+    origin: { lng: number; lat: number },
+    place: Place,
+    fromLabel?: string
+  ) => {
     setIsRouting(true);
     setRerouteMessage(null);
     setRouteDestination(place);
     setCommutes(rememberDestination(place));
-    const origin =
-      place.city === 'Bangalore' ? DEFAULT_ORIGIN_BLR : DEFAULT_ORIGIN_DELHI;
     const dest = { lng: place.lng, lat: place.lat };
 
-    // Phase 5: alternatives + risk scoring
     let routes = await fetchRouteAlternatives(origin, dest);
     if (!routes.length) {
       const single = await fetchRoute(origin, dest);
@@ -249,7 +258,6 @@ export default function App() {
     }
 
     const labels = ['Route A', 'Route B', 'Route C'];
-    // Emergency mode: treat blocked/partial as higher confidence so risk penalty bites harder
     const scoringSegments = emergencyMode
       ? segments.map((s) =>
           s.status === 'blocked' || s.status === 'partial'
@@ -263,19 +271,30 @@ export default function App() {
     setActiveRoute(best.route);
 
     const summary = buildComparisonSummary(ranked);
-    const detail = `To ${place.name} · ${best.route.durationText} · ${best.route.distanceText}. ${summary}`;
+    const fromText = fromLabel || (userLocation ? 'Your location' : 'Start');
+    const detail = `From ${fromText} → ${place.name} · ${best.route.durationText} · ${best.route.distanceText}. ${summary}`;
     setRerouteMessage(detail);
 
     if (best.intersectsBlockage) {
-      speak(
-        buildRerouteExplanation({
-          segmentName: best.blockageName,
-          newDurationText: best.route.durationText,
-        })
-      );
+      const blockMsg = buildRerouteExplanation({
+        segmentName: best.blockageName,
+        newDurationText: best.route.durationText,
+      });
+      speak(blockMsg);
     } else {
-      speak(`Route ready to ${place.name}. About ${best.route.durationText}.`);
+      speak(
+        `Route from ${fromText} to ${place.name}. About ${best.route.durationText}, ${best.route.distanceText}.`
+      );
     }
+  };
+
+  const navigateToPlace = async (place: Place) => {
+    const origin = resolveOriginForCity(place.city);
+    await runRouteCalculation(
+      origin,
+      place,
+      userLocation ? 'Your location' : undefined
+    );
   };
 
   const startDemoNavigation = () => {
@@ -456,6 +475,8 @@ export default function App() {
               className="w-full h-full"
               routeGeometry={activeRoute?.geometry ?? null}
               heatmapMode={heatmapMode}
+              trackUser={true}
+              onUserLocation={(pos) => setUserLocation(pos)}
             />
 
             {/* Data source indicator */}
@@ -526,6 +547,13 @@ export default function App() {
                     Start navigation
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowRoutePlanner(true)}
+                  className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-emerald-500 active:scale-95 transition"
+                >
+                  Directions
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowAdmin(true)}
@@ -606,6 +634,33 @@ export default function App() {
                   if (place.city === 'Delhi') setActiveCity('delhi');
                   if (place.city === 'Bangalore') setActiveCity('bangalore');
                   navigateToPlace(place);
+                }}
+              />
+            )}
+
+
+            {showRoutePlanner && (
+              <RoutePlanner
+                cityFilter={activeCity === 'delhi' ? 'Delhi' : activeCity === 'bangalore' ? 'Bangalore' : 'All'}
+                userLocation={userLocation}
+                onClose={() => setShowRoutePlanner(false)}
+                onPlan={async (from, to) => {
+                  setShowRoutePlanner(false);
+                  if (to.city === 'Delhi') setActiveCity('delhi');
+                  if (to.city === 'Bangalore') setActiveCity('bangalore');
+                  if (from === 'gps') {
+                    if (!userLocation) {
+                      setRerouteMessage('Enable location permission to route from where you are.');
+                      return;
+                    }
+                    await runRouteCalculation(userLocation, to, 'Your location');
+                  } else {
+                    await runRouteCalculation(
+                      { lng: from.lng, lat: from.lat },
+                      to,
+                      from.name
+                    );
+                  }
                 }}
               />
             )}
