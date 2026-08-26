@@ -71,11 +71,16 @@ Full write-up: **[docs/PHASE4.md](docs/PHASE4.md)**
 
 ---
 
-## Phase 5 — Predictive & risk-aware routing (planned)
+## Phase 5 — Predictive & risk-aware routing ✅
 
-- Historical blockage patterns
-- Custom cost: time + blockage_probability × penalty
-- Multi-route AI trade-off summary
+Full write-up: **[docs/PHASE5.md](docs/PHASE5.md)**
+
+- [x] Blockage probability from status + confidence
+- [x] Route cost = travel_time + risk penalty
+- [x] OSRM alternatives + rank by cost
+- [x] Trade-off summary on map banner + voice
+- [ ] Historical time-series model from Supabase
+- [ ] LLM-generated long-form comparison
 
 ---
 

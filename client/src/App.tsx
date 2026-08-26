@@ -17,12 +17,14 @@ import { INDIA_PLACES, DEFAULT_ORIGIN_DELHI, DEFAULT_ORIGIN_BLR, type Place } fr
 import { fetchSegments, voteOnSegment, submitReport, subscribeToSegments } from './lib/segmentsApi';
 import {
   fetchRoute,
+  fetchRouteAlternatives,
   routeIntersectsBlocked,
   buildRerouteExplanation,
   speak,
   initVoices,
   type RouteResult,
 } from './lib/routing';
+import { scoreRoute, rankRoutes, buildComparisonSummary } from './lib/risk';
 import { isSupabaseConfigured } from './lib/supabase';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { NavigationHeader } from './components/NavigationHeader';
@@ -189,26 +191,40 @@ export default function App() {
     setRouteDestination(place);
     const origin =
       place.city === 'Bangalore' ? DEFAULT_ORIGIN_BLR : DEFAULT_ORIGIN_DELHI;
-    const route = await fetchRoute(origin, { lng: place.lng, lat: place.lat });
+    const dest = { lng: place.lng, lat: place.lat };
+
+    // Phase 5: alternatives + risk scoring
+    let routes = await fetchRouteAlternatives(origin, dest);
+    if (!routes.length) {
+      const single = await fetchRoute(origin, dest);
+      if (single) routes = [single];
+    }
     setIsRouting(false);
-    if (!route) {
+
+    if (!routes.length) {
       setRerouteMessage('Could not calculate route. Check network and try again.');
       return;
     }
-    setActiveRoute(route);
 
-    const { hit, segmentName } = routeIntersectsBlocked(route.geometry, segments);
-    if (hit) {
-      const msg = buildRerouteExplanation({
-        segmentName,
-        newDurationText: route.durationText,
-      });
-      setRerouteMessage(msg);
-      speak(msg);
-    } else {
-      setRerouteMessage(
-        `To ${place.name} · ${route.durationText} · ${route.distanceText}`
+    const labels = ['Route A', 'Route B', 'Route C'];
+    const scored = routes.map((r, i) => scoreRoute(r, segments, labels[i] || `Route ${i + 1}`));
+    const ranked = rankRoutes(scored);
+    const best = ranked[0];
+    setActiveRoute(best.route);
+
+    const summary = buildComparisonSummary(ranked);
+    const detail = `To ${place.name} · ${best.route.durationText} · ${best.route.distanceText}. ${summary}`;
+    setRerouteMessage(detail);
+
+    if (best.intersectsBlockage) {
+      speak(
+        buildRerouteExplanation({
+          segmentName: best.blockageName,
+          newDurationText: best.route.durationText,
+        })
       );
+    } else {
+      speak(`Route ready to ${place.name}. About ${best.route.durationText}.`);
     }
   };
 

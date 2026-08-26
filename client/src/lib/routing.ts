@@ -100,6 +100,54 @@ export async function fetchRoute(
   }
 }
 
+/** Fetch main route + up to 2 alternatives (OSRM). */
+export async function fetchRouteAlternatives(
+  origin: LatLng,
+  destination: LatLng
+): Promise<RouteResult[]> {
+  const coords = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
+  const url =
+    `https://router.project-osrm.org/route/v1/driving/${coords}` +
+    `?overview=full&geometries=geojson&steps=true&alternatives=true`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (data.code !== 'Ok' || !data.routes?.length) return [];
+
+    const results: RouteResult[] = [];
+    for (const route of data.routes.slice(0, 3)) {
+      const geometry = route.geometry as GeoJSON.LineString;
+      const steps: RouteStep[] = [];
+      for (const leg of route.legs || []) {
+        for (const step of leg.steps || []) {
+          steps.push({
+            instruction: stepInstruction(step),
+            name: step.name || '',
+            distanceMeters: step.distance || 0,
+            durationSeconds: step.duration || 0,
+            distanceText: formatDistance(step.distance || 0),
+          });
+        }
+      }
+      results.push({
+        geometry,
+        distanceMeters: route.distance,
+        durationSeconds: route.duration,
+        distanceText: formatDistance(route.distance),
+        durationText: formatDuration(route.duration),
+        steps,
+        legs: route.legs || [],
+      });
+    }
+    return results;
+  } catch (e) {
+    console.error('[Verge] fetchRouteAlternatives failed', e);
+    return [];
+  }
+}
+
 export function routeIntersectsBlocked(
   routeGeometry: GeoJSON.LineString,
   segments: Array<{ status: string; geometry?: GeoJSON.LineString; confidence: number; name?: string }>
