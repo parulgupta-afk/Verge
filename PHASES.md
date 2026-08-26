@@ -29,6 +29,8 @@ Each phase is independently demoable.
 - [x] Live / Local data-source indicator on map
 - [x] Stable `device_id` in localStorage for future vote dedupe
 - [x] Migration `002_phase2_device_votes.sql` (optional device_id on confirmations)
+- [x] Votes upsert with `device_id` (one vote per device per segment)
+- [x] Fixed `package-lock.json` + `.npmrc` for official npm registry
 - [ ] Live multi-client demo with your Supabase project + Realtime enabled
 - [ ] Reporter trust weights persisted
 - [ ] Supabase Auth (anonymous + email)

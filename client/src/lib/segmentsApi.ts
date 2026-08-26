@@ -117,7 +117,7 @@ export async function submitReport(params: {
   return { ok: true };
 }
 
-/** Confirm or refute a segment */
+/** Confirm or refute a segment (deduped by device_id when migration 002 is applied) */
 export async function voteOnSegment(
   segmentId: string,
   type: 'confirm' | 'refute'
@@ -126,25 +126,32 @@ export async function voteOnSegment(
   if (!isSupabaseConfigured || !supabase) {
     return { ok: true };
   }
-  void deviceId; // reserved for auth-linked votes in Phase 2+
 
-  const { error } = await supabase.from('confirmations').upsert(
-    {
-      segment_id: segmentId,
-      type,
-    },
-    { onConflict: 'segment_id,user_id' }
-  );
+  // Prefer device-scoped row so one browser = one vote per segment
+  const payload = {
+    segment_id: segmentId,
+    type,
+    device_id: deviceId,
+  };
+
+  const { error } = await supabase.from('confirmations').upsert(payload, {
+    onConflict: 'segment_id,device_id',
+    ignoreDuplicates: false,
+  });
 
   if (error) {
-    // If unique constraint fails without auth user, try plain insert
-    const { error: insertError } = await supabase.from('confirmations').insert({
-      segment_id: segmentId,
-      type,
-    });
+    // Fallback: plain insert (works before unique index exists)
+    const { error: insertError } = await supabase.from('confirmations').insert(payload);
     if (insertError) {
-      console.error('[Verge] voteOnSegment error:', insertError.message);
-      return { ok: false, error: insertError.message };
+      // Last resort without device_id column
+      const { error: basicError } = await supabase.from('confirmations').insert({
+        segment_id: segmentId,
+        type,
+      });
+      if (basicError) {
+        console.error('[Verge] voteOnSegment error:', basicError.message);
+        return { ok: false, error: basicError.message };
+      }
     }
   }
 
