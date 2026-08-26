@@ -386,6 +386,11 @@ export default function App() {
               routeGeometry={activeRoute?.geometry ?? null}
             />
 
+            {/* Data source indicator */}
+            <div className="absolute top-16 right-3 z-20 rounded-full bg-slate-900/90 border border-slate-600 px-3 py-1.5 text-[10px] font-medium text-slate-300 shadow-lg">
+              {dataSource === 'supabase' ? '● Live · Supabase' : '○ Local seed'}
+            </div>
+
             {/* City switcher */}
             <div className="absolute top-16 left-3 z-20 flex gap-1 rounded-full bg-slate-900/90 border border-slate-600 p-1 shadow-lg">
               {([

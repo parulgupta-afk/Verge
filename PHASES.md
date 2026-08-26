@@ -21,16 +21,19 @@ Each phase is independently demoable.
 
 ---
 
-## Phase 2 — Real-time & trust (partial / next)
+## Phase 2 — Real-time & identity ✅ (partial)
 
-**Goal:** Multi-user live updates + stronger trust
+**Goal:** Multi-user live updates + stable local identity
 
 - [x] Supabase Realtime subscription code
-- [ ] Live multi-client demo with your Supabase project
+- [x] Live / Local data-source indicator on map
+- [x] Stable `device_id` in localStorage for future vote dedupe
+- [x] Migration `002_phase2_device_votes.sql` (optional device_id on confirmations)
+- [ ] Live multi-client demo with your Supabase project + Realtime enabled
 - [ ] Reporter trust weights persisted
-- [ ] Auth (anonymous + email)
+- [ ] Supabase Auth (anonymous + email)
 
-**Demo:** Two browsers; report on one, see update on the other.
+**Demo:** Badge shows “Live · Supabase” when keys are set; two clients update via Realtime.
 
 ---
 
@@ -102,4 +105,6 @@ See `docs/DEPLOY.md` — Vercel (`client/`) + Render (`server/`) + Supabase.
 |-----|---------|
 | `phase-1-foundation` | Map + confidence + schema |
 | `phase-3-routing` | Search → route → speech |
-| `v0.1.0-india-mvp` | Current demoable MVP |
+| `phase-2-realtime` | Live badge + device identity |
+| `v0.1.0-india-mvp` | India MVP |
+| `v0.2.0-phase2` | Phase 2 partial |

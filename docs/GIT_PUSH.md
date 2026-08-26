@@ -1,52 +1,55 @@
-# Push Verge to GitHub (with phase tags)
+# Push Verge to GitHub
 
-## 1. Create an empty repo on GitHub
+**Repo:** https://github.com/parulgupta-afk/Verge
 
-- github.com → New repository  
-- Name: `verge` (or `verge-india`)  
-- **Do not** add README, .gitignore, or license (repo must be empty)
-
-## 2. Unzip and push
+## First time
 
 ```bash
-unzip verge-india-mvp-git.zip
+unzip verge-phase2-git.zip   # or current zip name
 cd verge
 
-# Point at your repo (HTTPS or SSH)
-git remote add origin https://github.com/YOUR_USERNAME/verge.git
-# git remote add origin git@github.com:YOUR_USERNAME/verge.git
-
+git remote remove origin 2>/dev/null
+git remote add origin https://github.com/parulgupta-afk/Verge.git
 git branch -M main
 git push -u origin main
 git push origin --tags
 ```
 
-## 3. Verify tags on GitHub
+If the GitHub repo already has a README commit and push is rejected:
 
 ```bash
-git ls-remote --tags origin
+git pull origin main --rebase
+git push -u origin main
+git push origin --tags
 ```
 
-You should see:
+Or force only if you intend to replace remote history:
 
-- `phase-1-foundation`
-- `phase-3-routing`
-- `v0.1.0-india-mvp`
+```bash
+git push -u origin main --force
+git push origin --tags --force
+```
 
-## 4. Optional: release notes on GitHub
+## After every new phase (from now on)
 
-Create a Release from tag `v0.1.0-india-mvp` with body pointing at `PHASES.md`.
+```bash
+cd verge
+git add -A
+git commit -m "Phase N: short description"
+git tag -a phase-N-name -m "message"
+git push origin main
+git push origin --tags
+```
 
-## Auth tips
+## Auth
 
-- HTTPS: use a [Personal Access Token](https://github.com/settings/tokens) as the password  
-- SSH: ensure `ssh -T git@github.com` works  
+- HTTPS: GitHub → Settings → Developer settings → Personal Access Token (classic) with `repo` scope  
+- Password when `git push` asks = the token  
 
-## Vercel / Render
+SSH alternative:
 
-After push, connect the same GitHub repo:
-
-- Vercel → Root Directory `client`  
-- Render → Root Directory `server`  
-
-See `docs/DEPLOY.md`.
+```bash
+git remote set-url origin git@github.com:parulgupta-afk/Verge.git
+git push -u origin main
+git push origin --tags
+```

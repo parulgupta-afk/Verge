@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import type { RoadSegment, ReportStatus } from '../types';
 import { INDIA_SEED_SEGMENTS } from '../data/indiaSeedSegments';
+import { getDeviceId } from './identity';
 
 /** Map DB row → frontend RoadSegment */
 function rowToSegment(row: any): RoadSegment {
@@ -121,9 +122,11 @@ export async function voteOnSegment(
   segmentId: string,
   type: 'confirm' | 'refute'
 ): Promise<{ ok: boolean; error?: string }> {
+  const deviceId = getDeviceId();
   if (!isSupabaseConfigured || !supabase) {
     return { ok: true };
   }
+  void deviceId; // reserved for auth-linked votes in Phase 2+
 
   const { error } = await supabase.from('confirmations').upsert(
     {
