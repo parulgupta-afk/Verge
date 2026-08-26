@@ -108,10 +108,15 @@ Full write-up: **[docs/PHASE7.md](docs/PHASE7.md)**
 
 ---
 
-## Phase 8 — Admin (planned)
+## Phase 8 — Admin & visualization ✅
 
-- Heatmap
-- Live ops dashboard
+Full write-up: **[docs/PHASE8.md](docs/PHASE8.md)**
+
+- [x] Admin dashboard KPIs
+- [x] Top risky segments
+- [x] Risk heatmap toggle on map
+- [ ] Historical PostGIS heatmap
+- [ ] Auth-gated admin
 
 ---
 

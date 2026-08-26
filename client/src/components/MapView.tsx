@@ -14,6 +14,8 @@ interface MapViewProps {
   className?: string;
   /** Active navigation route (GeoJSON LineString) */
   routeGeometry?: GeoJSON.LineString | null;
+  /** Phase 8: exaggerate line width by confidence */
+  heatmapMode?: boolean;
 }
 
 export function MapView({
@@ -24,6 +26,7 @@ export function MapView({
   activeCity,
   className = '',
   routeGeometry = null,
+  heatmapMode = false,
 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -161,6 +164,32 @@ export function MapView({
       });
     }
   }, [segments, mapReady, onSegmentClick]);
+
+  // Phase 8 heatmap styling
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !map.getLayer('road-segments-line')) return;
+    if (heatmapMode) {
+      map.setPaintProperty('road-segments-line', 'line-width', [
+        'interpolate',
+        ['linear'],
+        ['get', 'confidence'],
+        0, 4,
+        50, 8,
+        100, 14,
+      ]);
+      map.setPaintProperty('road-segments-line', 'line-opacity', 0.95);
+    } else {
+      map.setPaintProperty('road-segments-line', 'line-width', [
+        'interpolate',
+        ['linear'],
+        ['get', 'confidence'],
+        0, 3,
+        100, 6,
+      ]);
+      map.setPaintProperty('road-segments-line', 'line-opacity', 0.9);
+    }
+  }, [heatmapMode, mapReady, segments]);
 
   // Draw / update active route
   useEffect(() => {

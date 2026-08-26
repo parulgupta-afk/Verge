@@ -42,6 +42,8 @@ import { LeaderboardScreen } from './components/LeaderboardScreen';
 import { StatusUpdateModal } from './components/StatusUpdateModal';
 import { OfficialFeedsPanel } from './components/OfficialFeedsPanel';
 import { SocialPanel } from './components/SocialPanel';
+import { AdminDashboard } from './components/AdminDashboard';
+import { computeAdminStats } from './lib/adminStats';
 import {
   loadCommutes,
   rememberDestination,
@@ -65,6 +67,8 @@ export default function App() {
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [showOfficialFeeds, setShowOfficialFeeds] = useState(false);
   const [showSocial, setShowSocial] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [heatmapMode, setHeatmapMode] = useState(false);
   const [commutes, setCommutes] = useState<SavedCommute[]>(() => loadCommutes());
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [offlineBanner, setOfflineBanner] = useState<string | null>(null);
@@ -451,6 +455,7 @@ export default function App() {
               activeCity={activeCity}
               className="w-full h-full"
               routeGeometry={activeRoute?.geometry ?? null}
+              heatmapMode={heatmapMode}
             />
 
             {/* Data source indicator */}
@@ -521,6 +526,13 @@ export default function App() {
                     Start navigation
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setShowAdmin(true)}
+                  className="flex items-center gap-2 rounded-full bg-violet-700 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-violet-600 active:scale-95 transition"
+                >
+                  Admin
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowSocial(true)}
@@ -594,6 +606,23 @@ export default function App() {
                   if (place.city === 'Delhi') setActiveCity('delhi');
                   if (place.city === 'Bangalore') setActiveCity('bangalore');
                   navigateToPlace(place);
+                }}
+              />
+            )}
+
+            {showAdmin && (
+              <AdminDashboard
+                stats={computeAdminStats(segments)}
+                segments={segments}
+                heatmapOn={heatmapMode}
+                onToggleHeatmap={() => setHeatmapMode((v) => !v)}
+                onClose={() => setShowAdmin(false)}
+                onSelectSegment={(id) => {
+                  const seg = segments.find((s) => s.id === id);
+                  if (seg) {
+                    setSelectedSegment(seg);
+                    setShowAdmin(false);
+                  }
                 }}
               />
             )}
