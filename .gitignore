@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build
+dist/
+client/dist/
+server/dist/
+
+# Env
+.env
+.env.local
+.env.*.local
+client/.env.local
+server/.env
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
