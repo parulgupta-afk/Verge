@@ -96,10 +96,15 @@ Full write-up: **[docs/PHASE6.md](docs/PHASE6.md)**
 
 ---
 
-## Phase 7 — Social (planned)
+## Phase 7 — Social & personalization ✅
 
-- Commute learning
-- Convoy / shared ETA
+Full write-up: **[docs/PHASE7.md](docs/PHASE7.md)**
+
+- [x] Commute learning (frequent destinations)
+- [x] Social panel UI
+- [x] Share destination code + join
+- [ ] Live convoy GPS
+- [ ] Cloud-synced commutes (Auth)
 
 ---
 

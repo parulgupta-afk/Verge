@@ -41,6 +41,16 @@ import { SearchOverlay } from './components/SearchOverlay';
 import { LeaderboardScreen } from './components/LeaderboardScreen';
 import { StatusUpdateModal } from './components/StatusUpdateModal';
 import { OfficialFeedsPanel } from './components/OfficialFeedsPanel';
+import { SocialPanel } from './components/SocialPanel';
+import {
+  loadCommutes,
+  rememberDestination,
+  removeCommute,
+  shareToClipboard,
+  decodeShare,
+  placeFromShare,
+  type SavedCommute,
+} from './lib/commute';
 import { OFFICIAL_NOTICES } from './data/officialFeeds';
 import { saveSegmentSnapshot, loadSegmentSnapshot, snapshotMeta, isProbablyOffline } from './lib/offlineCache';
 
@@ -54,6 +64,9 @@ export default function App() {
   const [activeCity, setActiveCity] = useState<CityKey>('delhi');
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [showOfficialFeeds, setShowOfficialFeeds] = useState(false);
+  const [showSocial, setShowSocial] = useState(false);
+  const [commutes, setCommutes] = useState<SavedCommute[]>(() => loadCommutes());
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [offlineBanner, setOfflineBanner] = useState<string | null>(null);
 
   // V1 routing state
@@ -213,6 +226,7 @@ export default function App() {
     setIsRouting(true);
     setRerouteMessage(null);
     setRouteDestination(place);
+    setCommutes(rememberDestination(place));
     const origin =
       place.city === 'Bangalore' ? DEFAULT_ORIGIN_BLR : DEFAULT_ORIGIN_DELHI;
     const dest = { lng: place.lng, lat: place.lat };
@@ -509,6 +523,13 @@ export default function App() {
                 )}
                 <button
                   type="button"
+                  onClick={() => setShowSocial(true)}
+                  className="flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-indigo-500 active:scale-95 transition"
+                >
+                  Social
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowOfficialFeeds(true)}
                   className="flex items-center gap-2 rounded-full bg-slate-700 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-600 active:scale-95 transition"
                 >
@@ -535,6 +556,48 @@ export default function App() {
                 onClose={() => setShowOfficialFeeds(false)}
               />
             )}
+
+            {showSocial && (
+              <SocialPanel
+                commutes={commutes}
+                onClose={() => {
+                  setShowSocial(false);
+                  setShareFeedback(null);
+                }}
+                onNavigate={(c) => {
+                  setShowSocial(false);
+                  if (c.place.city === 'Delhi') setActiveCity('delhi');
+                  if (c.place.city === 'Bangalore') setActiveCity('bangalore');
+                  navigateToPlace(c.place);
+                }}
+                onRemove={(id) => setCommutes(removeCommute(id))}
+                canShare={Boolean(routeDestination)}
+                shareFeedback={shareFeedback}
+                onShareCurrent={async () => {
+                  if (!routeDestination) return;
+                  try {
+                    await shareToClipboard(routeDestination);
+                    setShareFeedback('Copied share code to clipboard');
+                  } catch {
+                    setShareFeedback('Could not copy — try again');
+                  }
+                }}
+                onJoinCode={(code) => {
+                  const payload = decodeShare(code);
+                  if (!payload) {
+                    setShareFeedback('Invalid share code');
+                    return;
+                  }
+                  const place = placeFromShare(payload);
+                  setShowSocial(false);
+                  setShareFeedback(null);
+                  if (place.city === 'Delhi') setActiveCity('delhi');
+                  if (place.city === 'Bangalore') setActiveCity('bangalore');
+                  navigateToPlace(place);
+                }}
+              />
+            )}
+
 
             {/* Selected Segment Detail Bottom Sheet */}
             {selectedSegment && (
