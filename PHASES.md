@@ -84,11 +84,15 @@ Full write-up: **[docs/PHASE5.md](docs/PHASE5.md)**
 
 ---
 
-## Phase 6 — Civic / emergency / offline (planned)
+## Phase 6 — Civic / emergency / offline ✅
 
-- Official feed overlay
-- Emergency priority near hospitals
-- Cached last-known status snapshot
+Full write-up: **[docs/PHASE6.md](docs/PHASE6.md)**
+
+- [x] Official/civic notices panel (Delhi + Bangalore demo)
+- [x] Emergency priority mode (stronger risk avoidance)
+- [x] Offline segment snapshot + banner
+- [ ] Live civic APIs
+- [ ] Offline map tiles
 
 ---
 

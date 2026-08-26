@@ -40,6 +40,9 @@ import { OfflineMapsScreen } from './components/OfflineMapsScreen';
 import { SearchOverlay } from './components/SearchOverlay';
 import { LeaderboardScreen } from './components/LeaderboardScreen';
 import { StatusUpdateModal } from './components/StatusUpdateModal';
+import { OfficialFeedsPanel } from './components/OfficialFeedsPanel';
+import { OFFICIAL_NOTICES } from './data/officialFeeds';
+import { saveSegmentSnapshot, loadSegmentSnapshot, snapshotMeta, isProbablyOffline } from './lib/offlineCache';
 
 export default function App() {
   // Navigation screen state
@@ -49,6 +52,9 @@ export default function App() {
   const [segments, setSegments] = useState<RoadSegment[]>(INDIA_SEED_SEGMENTS);
   const [dataSource, setDataSource] = useState<'local' | 'supabase'>('local');
   const [activeCity, setActiveCity] = useState<CityKey>('delhi');
+  const [emergencyMode, setEmergencyMode] = useState(false);
+  const [showOfficialFeeds, setShowOfficialFeeds] = useState(false);
+  const [offlineBanner, setOfflineBanner] = useState<string | null>(null);
 
   // V1 routing state
   const [activeRoute, setActiveRoute] = useState<RouteResult | null>(null);
@@ -88,6 +94,7 @@ export default function App() {
   // Sync to localStorage
   useEffect(() => {
     localStorage.setItem('verge_segments_india', JSON.stringify(segments));
+    if (segments.length) saveSegmentSnapshot(segments);
   }, [segments]);
 
   useEffect(() => {
@@ -110,9 +117,26 @@ export default function App() {
   useEffect(() => {
     let unsub = () => {};
     (async () => {
+      if (isProbablyOffline()) {
+        const cached = loadSegmentSnapshot();
+        if (cached?.length) {
+          setSegments(cached);
+          setDataSource('local');
+          const meta = snapshotMeta();
+          setOfflineBanner(
+            meta?.savedAt
+              ? `Offline — showing snapshot from ${new Date(meta.savedAt).toLocaleString()}`
+              : 'Offline — showing last saved snapshot'
+          );
+          return;
+        }
+        setOfflineBanner('Offline — using built-in India seed data');
+      }
       const data = await fetchSegments();
       setSegments(data);
       setDataSource(isSupabaseConfigured ? 'supabase' : 'local');
+      saveSegmentSnapshot(data);
+      setOfflineBanner(null);
     })();
 
     if (isSupabaseConfigured) {
@@ -207,7 +231,15 @@ export default function App() {
     }
 
     const labels = ['Route A', 'Route B', 'Route C'];
-    const scored = routes.map((r, i) => scoreRoute(r, segments, labels[i] || `Route ${i + 1}`));
+    // Emergency mode: treat blocked/partial as higher confidence so risk penalty bites harder
+    const scoringSegments = emergencyMode
+      ? segments.map((s) =>
+          s.status === 'blocked' || s.status === 'partial'
+            ? { ...s, confidence: Math.min(100, s.confidence + 25) }
+            : s
+        )
+      : segments;
+    const scored = routes.map((r, i) => scoreRoute(r, scoringSegments, labels[i] || `Route ${i + 1}`));
     const ranked = rankRoutes(scored);
     const best = ranked[0];
     setActiveRoute(best.route);
@@ -408,8 +440,16 @@ export default function App() {
             />
 
             {/* Data source indicator */}
-            <div className="absolute top-16 right-3 z-20 rounded-full bg-slate-900/90 border border-slate-600 px-3 py-1.5 text-[10px] font-medium text-slate-300 shadow-lg">
-              {dataSource === 'supabase' ? '● Live · Supabase' : '○ Local seed'}
+            <div className="absolute top-16 right-3 z-20 flex flex-col items-end gap-1">
+              <div className="rounded-full bg-slate-900/90 border border-slate-600 px-3 py-1.5 text-[10px] font-medium text-slate-300 shadow-lg">
+                {dataSource === 'supabase' ? '● Live · Supabase' : '○ Local seed'}
+                {emergencyMode ? ' · 🚨 Emergency' : ''}
+              </div>
+              {offlineBanner && (
+                <div className="rounded-lg bg-amber-950/90 border border-amber-600/50 px-3 py-1.5 text-[10px] text-amber-100 max-w-[200px] shadow-lg">
+                  {offlineBanner}
+                </div>
+              )}
             </div>
 
             {/* City switcher */}
@@ -469,12 +509,31 @@ export default function App() {
                 )}
                 <button
                   type="button"
+                  onClick={() => setShowOfficialFeeds(true)}
+                  className="flex items-center gap-2 rounded-full bg-slate-700 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-600 active:scale-95 transition"
+                >
+                  Civic
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsReportFlowOpen(true)}
                   className="flex items-center gap-2 rounded-full bg-red-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:bg-red-600 active:scale-95 transition"
                 >
                   Report
                 </button>
               </div>
+            )}
+
+            {showOfficialFeeds && (
+              <OfficialFeedsPanel
+                notices={OFFICIAL_NOTICES.filter((n) =>
+                  activeCity === 'delhi' ? n.city === 'Delhi' : n.city === 'Bangalore'
+                )}
+                cityLabel={activeCity === 'delhi' ? 'Delhi-NCR' : 'Bangalore'}
+                emergencyMode={emergencyMode}
+                onToggleEmergency={() => setEmergencyMode((v) => !v)}
+                onClose={() => setShowOfficialFeeds(false)}
+              />
             )}
 
             {/* Selected Segment Detail Bottom Sheet */}
