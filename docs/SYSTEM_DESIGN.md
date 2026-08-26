@@ -48,7 +48,7 @@ It does **not** compete with Google Maps / Waze on general navigation or live tr
 └─────────────────────────────────────┘
                │
                ▼
-     External: Mapbox Directions / OSRM
+     External: Public or self-hosted OSRM (no Mapbox)
 ```
 
 ### Deployment Targets
@@ -122,7 +122,7 @@ It does **not** compete with Google Maps / Waze on general navigation or live tr
 
 ## 5. Routing Progression (from PRD)
 
-- **V1:** External API (Mapbox Directions or OSRM) + best-effort exclude of verified-blocked segments. Debounced trigger.
+- **V1:** External API (OSRM (public or self-hosted)) + best-effort exclude of verified-blocked segments. Debounced trigger.
 - **V2:** Own PostGIS road graph + custom edge weights.
 - **V3:** Risk-aware cost function:  
   `cost = travel_time + traffic_penalty + (blockage_probability × penalty) + historical_risk`
@@ -189,7 +189,7 @@ Later versions add reporter reputation history, density, and light AI assist.
 ## 11. Open Technical Risks (must be spiked early)
 
 1. Road-segment snapping (user click → correct linestring)
-2. Mapbox/OSRM exclude geometry support
+2. OSRM avoid / custom graph support
 3. Realtime fan-out performance under many concurrent viewers
 4. Confidence threshold & decay tuning
 

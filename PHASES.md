@@ -51,7 +51,7 @@ Full write-up: **[docs/PHASE2.md](docs/PHASE2.md)**
 - [x] Reroute banner + Web Speech explanation
 - [x] Start navigation screen with ETA
 - [x] City switcher (Delhi | Bangalore)
-- [ ] Mapbox Directions exclude-zones (needs token)
+- [ ] Self-hosted OSRM exclude (optional, free software)
 - [ ] Debounced “only if ahead on route” trigger
 
 **Demo:** Search “AIIMS” or “Bellandur” → route → spoken explanation if blocked segment intersects.

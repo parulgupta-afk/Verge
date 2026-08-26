@@ -95,7 +95,7 @@ High confidence can slightly increase segment opacity or thickness; low confiden
 ## 5. Component-Level Notes
 
 ### InteractiveMap
-- Full-screen MapLibre (or Mapbox GL) instance.
+- Full-screen MapLibre GL instance.
 - Custom layer for road segments (LineString) colored by status.
 - User location puck with heading.
 - Route overlay when navigating.

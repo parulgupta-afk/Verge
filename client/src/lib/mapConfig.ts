@@ -1,6 +1,7 @@
 // Verge map configuration — India focused
+// 100% free stack: MapLibre GL + free styles/tiles (NO Mapbox account)
 
-export const INDIA_CENTER: [number, number] = [78.9629, 21.5937]; // roughly central India
+export const INDIA_CENTER: [number, number] = [78.9629, 21.5937];
 export const INDIA_ZOOM = 4.5;
 
 export const CITY_CENTERS = {
@@ -14,20 +15,33 @@ export const CITY_CENTERS = {
 
 export type CityKey = keyof typeof CITY_CENTERS;
 
-// Free raster style (OpenStreetMap via free tile servers)
-// For production you can switch to MapTiler / OpenFreeMap with a key
-export const MAP_STYLE = {
+/**
+ * Free map styles (pick one — no API key, no payment method)
+ *
+ * 1. OpenFreeMap Liberty — vector, looks modern
+ * 2. MapLibre demo style — always works for local dev
+ * 3. OSM raster — classic, simple
+ */
+export const FREE_STYLE_URLS = {
+  openFreeMap: 'https://tiles.openfreemap.org/styles/liberty',
+  maplibreDemo: 'https://demotiles.maplibre.org/style.json',
+} as const;
+
+/** Default: OpenFreeMap (free, no signup). Fallback handled in MapView if load fails. */
+export const MAP_STYLE_URL = FREE_STYLE_URLS.openFreeMap;
+
+/** OSM raster fallback if vector style fails */
+export const OSM_RASTER_STYLE = {
   version: 8 as const,
   sources: {
     osm: {
       type: 'raster' as const,
       tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',
+      maxzoom: 19,
     },
   },
   layers: [
@@ -35,16 +49,13 @@ export const MAP_STYLE = {
       id: 'osm',
       type: 'raster' as const,
       source: 'osm',
-      minzoom: 0,
-      maxzoom: 19,
     },
   ],
 };
 
-// Status colors for road segments
 export const STATUS_COLORS = {
-  blocked: '#ef4444',   // red-500
-  partial: '#f59e0b',   // amber-500
-  clear: '#22c55e',     // green-500
-  unknown: '#94a3b8',   // slate-400
+  blocked: '#ef4444',
+  partial: '#f59e0b',
+  clear: '#22c55e',
+  unknown: '#94a3b8',
 } as const;

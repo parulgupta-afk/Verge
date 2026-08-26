@@ -54,7 +54,7 @@ route cost =
 
 - True historical pattern model from DB time-series  
 - LLM-written multi-paragraph trade-offs  
-- Mapbox exclude polygons  
+- OSRM/Valhalla avoid polygons (self-host)  
 - Custom PostGIS graph (Phase 3 V2 from original PRD)  
 
 ---

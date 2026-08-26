@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { INDIA_CENTER, INDIA_ZOOM, MAP_STYLE, STATUS_COLORS, CITY_CENTERS, CityKey } from '../lib/mapConfig';
+import { INDIA_CENTER, INDIA_ZOOM, MAP_STYLE_URL, OSM_RASTER_STYLE, STATUS_COLORS, CITY_CENTERS, CityKey } from '../lib/mapConfig';
 import type { RoadSegment } from '../types';
 
 interface MapViewProps {
@@ -47,10 +47,18 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE as any,
+      style: MAP_STYLE_URL, // free OpenFreeMap — no Mapbox
       center: start.center,
       zoom: start.zoom,
       attributionControl: { compact: true },
+    });
+
+    map.on('error', (e) => {
+      // If free vector style fails, fall back to OSM raster
+      const msg = String((e as any)?.error?.message || e);
+      if (msg && map.getStyle()?.sources && !map.getSource('osm')) {
+        console.warn('[Verge] style issue, using OSM raster fallback', msg);
+      }
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');

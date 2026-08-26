@@ -51,5 +51,5 @@ cd server && npm run build && npm start
 
 ## Notes
 
-- OSRM public server is fine for demos; for production use Mapbox Directions or self-hosted OSRM and put the token only on the server.
+- OSRM public server is fine for demos; for production self-host OSRM or Valhalla (free software; no Mapbox).
 - CORS on the Hono server already allows `localhost:3000`; add your Vercel domain when you go live.
