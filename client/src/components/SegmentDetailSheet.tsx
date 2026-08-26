@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Clock, CheckCircle, XCircle, Camera, FileEdit, X, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Clock, CheckCircle, XCircle, Camera, FileEdit, X, ArrowRight, ShieldCheck, Check, History } from 'lucide-react';
 import { RoadSegment, ReportStatus } from '../types';
+import { fetchSegmentHistory, type SegmentHistoryEvent } from '../lib/segmentsApi';
 
 interface SegmentDetailSheetProps {
   segment: RoadSegment;
@@ -22,6 +23,22 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
   const [userVoted, setUserVoted] = useState<'confirmed' | 'refuted' | null>(null);
   const [customNote, setCustomNote] = useState<string>(segment.notes || '');
   const [photoPreview, setPhotoPreview] = useState<string | null>(segment.photoUrl || null);
+  const [history, setHistory] = useState<SegmentHistoryEvent[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    fetchSegmentHistory(segment.id).then((ev) => {
+      if (!cancelled) {
+        setHistory(ev);
+        setHistoryLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [segment.id]);
 
   const handleVote = (type: 'confirmed' | 'refuted') => {
     setUserVoted(type);
@@ -178,7 +195,54 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
           />
         </div>
 
+
+        {/* Audit trail — show your work */}
+        <div className="rounded-2xl border border-[#424754] bg-[#10131b] p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-[#e1e2ed]">
+            <History size={16} className="text-blue-400" />
+            Status history
+            <span className="text-[10px] font-normal text-[#8b90a0] ml-auto">
+              Why this confidence?
+            </span>
+          </div>
+          {historyLoading && (
+            <p className="text-xs text-[#8b90a0]">Loading reports & votes…</p>
+          )}
+          {!historyLoading && history.length === 0 && (
+            <p className="text-xs text-[#8b90a0]">
+              No remote history yet (local seed or empty). After Supabase votes, each report and confirm appears here with trust level — not a black box.
+            </p>
+          )}
+          <ul className="space-y-2 max-h-40 overflow-y-auto">
+            {history.map((ev) => (
+              <li
+                key={ev.id}
+                className="flex gap-2 text-xs border-l-2 border-slate-600 pl-3 py-1"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-[#e1e2ed] font-medium">
+                    {ev.kind === 'report' && `Report: ${ev.type}`}
+                    {ev.kind === 'confirm' && 'Confirm (+signal)'}
+                    {ev.kind === 'refute' && 'Refute (−signal)'}
+                    {ev.hasMedia ? ' · media' : ''}
+                  </div>
+                  <div className="text-[#8b90a0] truncate">
+                    {ev.trustLabel || 'Anonymous'} · {new Date(ev.createdAt).toLocaleString()}
+                  </div>
+                  {ev.notes && (
+                    <div className="text-[#a0a4b8] mt-0.5 truncate">{ev.notes}</div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-[#6b7280] leading-snug">
+            Confidence decays over time without new evidence. Trust-weighted votes change the score more than new devices.
+          </p>
+        </div>
+
         {/* Primary Voting / Confirmation Actions */}
+
         <div className="flex gap-3">
           <button
             onClick={() => handleVote('confirmed')}

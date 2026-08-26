@@ -174,7 +174,15 @@ export function MapView({
             0, 3,
             100, 6,
           ],
-          'line-opacity': 0.9,
+          'line-opacity': [
+            'interpolate',
+            ['linear'],
+            ['get', 'confidence'],
+            0, 0.35,
+            40, 0.65,
+            70, 0.9,
+            100, 1,
+          ],
         },
       });
 
@@ -209,7 +217,14 @@ export function MapView({
         50, 8,
         100, 14,
       ]);
-      map.setPaintProperty('road-segments-line', 'line-opacity', 0.95);
+      map.setPaintProperty('road-segments-line', 'line-opacity', [
+        'interpolate',
+        ['linear'],
+        ['get', 'confidence'],
+        0, 0.45,
+        50, 0.85,
+        100, 1,
+      ]);
     } else {
       map.setPaintProperty('road-segments-line', 'line-width', [
         'interpolate',
@@ -218,7 +233,15 @@ export function MapView({
         0, 3,
         100, 6,
       ]);
-      map.setPaintProperty('road-segments-line', 'line-opacity', 0.9);
+      map.setPaintProperty('road-segments-line', 'line-opacity', [
+        'interpolate',
+        ['linear'],
+        ['get', 'confidence'],
+        0, 0.35,
+        40, 0.65,
+        70, 0.9,
+        100, 1,
+      ]);
     }
   }, [heatmapMode, mapReady, segments]);
 

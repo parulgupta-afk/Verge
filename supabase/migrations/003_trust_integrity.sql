@@ -253,4 +253,3 @@ $$;
 
 COMMENT ON FUNCTION refresh_reporter_trust IS
   'Call on a schedule (Edge cron every few hours) to update trust_weight from report outcomes';
-EOF

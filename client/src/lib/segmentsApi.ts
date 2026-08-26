@@ -242,3 +242,75 @@ export function subscribeToSegments(
     supabase.removeChannel(channel);
   };
 }
+
+/** Audit trail for a segment — reports + confirmations (explainability) */
+export interface SegmentHistoryEvent {
+  id: string;
+  kind: 'report' | 'confirm' | 'refute';
+  type?: string;
+  createdAt: string;
+  trustLabel?: string;
+  notes?: string | null;
+  hasMedia?: boolean;
+}
+
+export async function fetchSegmentHistory(
+  segmentId: string
+): Promise<SegmentHistoryEvent[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    return [];
+  }
+
+  const events: SegmentHistoryEvent[] = [];
+
+  const { data: reports } = await supabase
+    .from('reports')
+    .select('id, type, notes, media_url, created_at, reporter_id, users(trust_weight)')
+    .eq('segment_id', segmentId)
+    .order('created_at', { ascending: false })
+    .limit(40);
+
+  for (const r of reports || []) {
+    const tw = (r as any).users?.trust_weight;
+    events.push({
+      id: `r-${r.id}`,
+      kind: 'report',
+      type: r.type,
+      createdAt: r.created_at,
+      notes: r.notes,
+      hasMedia: Boolean(r.media_url),
+      trustLabel: trustLabelFromWeight(tw),
+    });
+  }
+
+  const { data: votes } = await supabase
+    .from('confirmations')
+    .select('id, type, created_at, user_id, users(trust_weight)')
+    .eq('segment_id', segmentId)
+    .order('created_at', { ascending: false })
+    .limit(40);
+
+  for (const v of votes || []) {
+    const tw = (v as any).users?.trust_weight;
+    events.push({
+      id: `c-${v.id}`,
+      kind: v.type === 'refute' ? 'refute' : 'confirm',
+      type: v.type,
+      createdAt: v.created_at,
+      trustLabel: trustLabelFromWeight(tw),
+    });
+  }
+
+  events.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  return events;
+}
+
+function trustLabelFromWeight(w: number | null | undefined): string {
+  if (w == null) return 'Anonymous';
+  if (w >= 1.5) return 'High trust';
+  if (w >= 0.9) return 'Standard trust';
+  if (w >= 0.5) return 'Low trust';
+  return 'Very low trust';
+}
