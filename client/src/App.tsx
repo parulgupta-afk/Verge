@@ -325,9 +325,9 @@ export default function App() {
             />
 
             {/* Data source indicator */}
-            <div className="absolute top-16 right-3 z-20 flex flex-col items-end gap-1">
+            <div className="absolute top-16 right-3 z-20 flex flex-col items-end gap-1 pointer-events-none">
               <div className="rounded-full bg-slate-900/90 border border-slate-600 px-3 py-1.5 text-[10px] font-medium text-slate-300 shadow-lg">
-                {dataSource === 'supabase' ? '● Live · Supabase' : '○ Local seed'}
+                {dataSource === 'supabase' ? '● Live · Cloud' : '○ Local Demo Mode'}
                 {emergencyMode ? ' · 🚨 Emergency' : ''}
               </div>
               {offlineBanner && (

@@ -5,7 +5,6 @@ import {
   INDIA_CENTER,
   INDIA_ZOOM,
   DARK_MATTER_STYLE,
-  OSM_RASTER_STYLE,
   STATUS_COLORS,
   CITY_CENTERS,
   CityKey,
@@ -45,6 +44,161 @@ export function MapView({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
+  // Keep latest props in refs for event callbacks
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+  const onSegmentClickRef = useRef(onSegmentClick);
+  onSegmentClickRef.current = onSegmentClick;
+  const routeGeometryRef = useRef(routeGeometry);
+  routeGeometryRef.current = routeGeometry;
+  const heatmapModeRef = useRef(heatmapMode);
+  heatmapModeRef.current = heatmapMode;
+  const selectedSegmentIdRef = useRef(selectedSegmentId);
+  selectedSegmentIdRef.current = selectedSegmentId;
+
+  // Unified function to sync segment & route layers to the map
+  const syncLayers = useCallback((map: maplibregl.Map) => {
+    if (!map || !map.isStyleLoaded()) return;
+
+    const currentSegments = segmentsRef.current;
+    const currentRoute = routeGeometryRef.current;
+    const isHeatmap = heatmapModeRef.current;
+    const selectedId = selectedSegmentIdRef.current;
+
+    // 1. Road Segments GeoJSON
+    const geojson: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: currentSegments
+        .filter((s) => s.geometry)
+        .map((s) => ({
+          type: 'Feature',
+          id: s.id,
+          properties: {
+            id: s.id,
+            name: s.name,
+            status: s.status,
+            confidence: s.confidence,
+            confirms: s.confirms,
+            refutes: s.refutes,
+          },
+          geometry: s.geometry as GeoJSON.LineString,
+        })),
+    };
+
+    const segSource = map.getSource('road-segments') as maplibregl.GeoJSONSource | undefined;
+    if (segSource) {
+      segSource.setData(geojson);
+    } else {
+      map.addSource('road-segments', {
+        type: 'geojson',
+        data: geojson,
+      });
+
+      if (!map.getLayer('road-segments-casing')) {
+        map.addLayer({
+          id: 'road-segments-casing',
+          type: 'line',
+          source: 'road-segments',
+          paint: {
+            'line-color': '#000000',
+            'line-width': isHeatmap ? 10 : 7,
+            'line-opacity': 0.4,
+          },
+        });
+      }
+
+      if (!map.getLayer('road-segments-line')) {
+        map.addLayer({
+          id: 'road-segments-line',
+          type: 'line',
+          source: 'road-segments',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'status'],
+              'blocked', STATUS_COLORS.blocked,
+              'partial', STATUS_COLORS.partial,
+              'clear', STATUS_COLORS.clear,
+              STATUS_COLORS.unknown,
+            ],
+            'line-width': isHeatmap
+              ? ['interpolate', ['linear'], ['get', 'confidence'], 0, 4, 50, 8, 100, 14]
+              : ['interpolate', ['linear'], ['get', 'confidence'], 0, 4, 100, 8],
+            'line-opacity': isHeatmap ? 0.95 : 0.9,
+          },
+        });
+
+        map.on('click', 'road-segments-line', (e) => {
+          if (!e.features?.length || !onSegmentClickRef.current) return;
+          const f = e.features[0];
+          const id = f.properties?.id;
+          const seg = segmentsRef.current.find((s) => s.id === id);
+          if (seg) onSegmentClickRef.current(seg);
+        });
+
+        map.on('mouseenter', 'road-segments-line', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'road-segments-line', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      }
+    }
+
+    // 2. Active Route GeoJSON
+    const routeData: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: currentRoute
+        ? [
+            {
+              type: 'Feature',
+              properties: {},
+              geometry: currentRoute,
+            },
+          ]
+        : [],
+    };
+
+    const routeSource = map.getSource('active-route') as maplibregl.GeoJSONSource | undefined;
+    if (routeSource) {
+      routeSource.setData(routeData);
+    } else if (currentRoute) {
+      map.addSource('active-route', { type: 'geojson', data: routeData });
+      if (!map.getLayer('active-route-casing')) {
+        map.addLayer({
+          id: 'active-route-casing',
+          type: 'line',
+          source: 'active-route',
+          paint: {
+            'line-color': '#1e3a8a',
+            'line-width': 10,
+            'line-opacity': 0.35,
+          },
+        });
+      }
+      if (!map.getLayer('active-route-line')) {
+        map.addLayer({
+          id: 'active-route-line',
+          type: 'line',
+          source: 'active-route',
+          paint: {
+            'line-color': '#3b82f6',
+            'line-width': 5,
+            'line-opacity': 0.95,
+          },
+        });
+      }
+    }
+
+    // 3. Selection filter
+    if (map.getLayer('road-segments-line')) {
+      if (selectedId) {
+        map.setFilter('road-segments-line', ['==', ['get', 'id'], selectedId]);
+        map.setFilter('road-segments-line', null);
+      }
+    }
+  }, []);
+
   // Initialize map once
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
@@ -75,6 +229,7 @@ export function MapView({
     const handleReady = () => {
       setMapReady(true);
       map.resize();
+      syncLayers(map);
       if (trackUser) {
         setTimeout(() => {
           try {
@@ -91,6 +246,7 @@ export function MapView({
       map.resize();
       if (map.isStyleLoaded()) {
         setMapReady(true);
+        syncLayers(map);
       }
     });
 
@@ -115,7 +271,7 @@ export function MapView({
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [syncLayers]);
 
   // Fly to city when activeCity changes
   useEffect(() => {
@@ -125,209 +281,25 @@ export function MapView({
     map.flyTo({ center, zoom, duration: 1200 });
   }, [activeCity, mapReady]);
 
-
-  // Render / update road segments as a GeoJSON source
-  const updateSegmentsLayers = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !map.isStyleLoaded()) return;
-
-    const geojson: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: segments
-        .filter((s) => s.geometry)
-        .map((s) => ({
-          type: 'Feature',
-          id: s.id,
-          properties: {
-            id: s.id,
-            name: s.name,
-            status: s.status,
-            confidence: s.confidence,
-            confirms: s.confirms,
-            refutes: s.refutes,
-          },
-          geometry: s.geometry as GeoJSON.LineString,
-        })),
-    };
-
-    const source = map.getSource('road-segments') as maplibregl.GeoJSONSource | undefined;
-    if (source) {
-      source.setData(geojson);
-    } else {
-      map.addSource('road-segments', {
-        type: 'geojson',
-        data: geojson,
-      });
-
-      // Casing (outline)
-      if (!map.getLayer('road-segments-casing')) {
-        map.addLayer({
-          id: 'road-segments-casing',
-          type: 'line',
-          source: 'road-segments',
-          paint: {
-            'line-color': '#000000',
-            'line-width': 7,
-            'line-opacity': 0.25,
-          },
-        });
-      }
-
-      // Main colored line
-      if (!map.getLayer('road-segments-line')) {
-        map.addLayer({
-          id: 'road-segments-line',
-          type: 'line',
-          source: 'road-segments',
-          paint: {
-            'line-color': [
-              'match',
-              ['get', 'status'],
-              'blocked', STATUS_COLORS.blocked,
-              'partial', STATUS_COLORS.partial,
-              'clear', STATUS_COLORS.clear,
-              STATUS_COLORS.unknown,
-            ],
-            'line-width': [
-              'interpolate',
-              ['linear'],
-              ['get', 'confidence'],
-              0, 3,
-              100, 6,
-            ],
-            'line-opacity': 0.9,
-          },
-        });
-
-        // Click handler
-        map.on('click', 'road-segments-line', (e) => {
-          if (!e.features?.length || !onSegmentClick) return;
-          const f = e.features[0];
-          const id = f.properties?.id;
-          const seg = segments.find((s) => s.id === id);
-          if (seg) onSegmentClick(seg);
-        });
-
-        map.on('mouseenter', 'road-segments-line', () => {
-          map.getCanvas().style.cursor = 'pointer';
-        });
-        map.on('mouseleave', 'road-segments-line', () => {
-          map.getCanvas().style.cursor = '';
-        });
-      }
-    }
-  }, [segments, mapReady, onSegmentClick]);
-
+  // Re-sync layers whenever segments, route, heatmap, or selection changes
   useEffect(() => {
-    updateSegmentsLayers();
-  }, [updateSegmentsLayers]);
+    if (mapRef.current && mapReady) {
+      syncLayers(mapRef.current);
+    }
+  }, [segments, routeGeometry, heatmapMode, selectedSegmentId, mapReady, syncLayers]);
 
-  // Phase 8 heatmap styling
+  // Fit bounds when route appears
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !map.isStyleLoaded() || !map.getLayer('road-segments-line')) return;
-    if (heatmapMode) {
-      map.setPaintProperty('road-segments-line', 'line-width', [
-        'interpolate',
-        ['linear'],
-        ['get', 'confidence'],
-        0, 4,
-        50, 8,
-        100, 14,
-      ]);
-      map.setPaintProperty('road-segments-line', 'line-opacity', 0.95);
-    } else {
-      map.setPaintProperty('road-segments-line', 'line-width', [
-        'interpolate',
-        ['linear'],
-        ['get', 'confidence'],
-        0, 3,
-        100, 6,
-      ]);
-      map.setPaintProperty('road-segments-line', 'line-opacity', 0.9);
-    }
-  }, [heatmapMode, mapReady, segments]);
-
-  // Draw / update active route
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !map.isStyleLoaded()) return;
-
-    const data: GeoJSON.FeatureCollection = {
-      type: 'FeatureCollection',
-      features: routeGeometry
-        ? [
-            {
-              type: 'Feature',
-              properties: {},
-              geometry: routeGeometry,
-            },
-          ]
-        : [],
-    };
-
-    const source = map.getSource('active-route') as maplibregl.GeoJSONSource | undefined;
-    if (source) {
-      source.setData(data);
-    } else if (routeGeometry) {
-      map.addSource('active-route', { type: 'geojson', data });
-      if (!map.getLayer('active-route-casing')) {
-        map.addLayer({
-          id: 'active-route-casing',
-          type: 'line',
-          source: 'active-route',
-          paint: {
-            'line-color': '#1e3a8a',
-            'line-width': 10,
-            'line-opacity': 0.35,
-          },
-        });
-      }
-      if (!map.getLayer('active-route-line')) {
-        map.addLayer({
-          id: 'active-route-line',
-          type: 'line',
-          source: 'active-route',
-          paint: {
-            'line-color': '#3b82f6',
-            'line-width': 5,
-            'line-opacity': 0.95,
-          },
-        });
-      }
-    }
-
-    // Fit bounds when route appears
-    if (routeGeometry?.coordinates?.length) {
-      const bounds = new maplibregl.LngLatBounds();
-      routeGeometry.coordinates.forEach((c) => bounds.extend(c as [number, number]));
-      map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
-    }
+    if (!map || !mapReady || !routeGeometry?.coordinates?.length) return;
+    const bounds = new maplibregl.LngLatBounds();
+    routeGeometry.coordinates.forEach((c) => bounds.extend(c as [number, number]));
+    map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
   }, [routeGeometry, mapReady]);
-
-  // Highlight selected segment
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady || !map.isStyleLoaded() || !map.getLayer('road-segments-line')) return;
-
-    if (selectedSegmentId) {
-      map.setFilter('road-segments-line', ['==', ['get', 'id'], selectedSegmentId]);
-      map.setFilter('road-segments-line', null);
-    }
-  }, [selectedSegmentId, mapReady]);
 
   return (
     <div className={`relative w-full h-full min-h-[300px] ${className}`}>
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
-      {!mapReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs text-white z-10 pointer-events-none transition-opacity duration-300">
-          <div className="text-center bg-slate-900/90 border border-slate-700 px-5 py-3 rounded-2xl shadow-2xl">
-            <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-400 border-t-transparent mx-auto mb-2" />
-            <p className="text-xs text-slate-300 font-medium">Rendering India map…</p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-

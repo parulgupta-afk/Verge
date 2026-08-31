@@ -84,17 +84,6 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
 
     if (error) {
       isSupabaseDatabaseReady = false;
-      const isMissingTable =
-        error.code === '42P01' ||
-        error.message?.includes('schema cache') ||
-        error.message?.includes('does not exist');
-
-      const notice = isMissingTable
-        ? 'Supabase DB tables not found. Run migrations in supabase/migrations/ in Supabase SQL editor. Using local seed data.'
-        : undefined;
-
-      console.info('[Verge] Supabase notice:', error.message);
-
       const fallback = city
         ? INDIA_SEED_SEGMENTS.filter((s) => s.city?.toLowerCase() === city.toLowerCase())
         : INDIA_SEED_SEGMENTS;
@@ -102,7 +91,6 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
       return {
         segments: fallback,
         isDbLive: false,
-        notice,
       };
     }
 
