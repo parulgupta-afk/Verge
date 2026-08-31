@@ -17,20 +17,42 @@ export type CityKey = keyof typeof CITY_CENTERS;
 
 /**
  * Free map styles (pick one — no API key, no payment method)
- *
- * 1. OpenFreeMap Liberty — vector, looks modern
- * 2. MapLibre demo style — always works for local dev
- * 3. OSM raster — classic, simple
  */
 export const FREE_STYLE_URLS = {
+  cartoDark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   openFreeMap: 'https://tiles.openfreemap.org/styles/liberty',
   maplibreDemo: 'https://demotiles.maplibre.org/style.json',
 } as const;
 
-/** Default: OpenFreeMap (free, no signup). Fallback handled in MapView if load fails. */
-export const MAP_STYLE_URL = FREE_STYLE_URLS.openFreeMap;
+/** High-speed CARTO Dark Matter raster style — loads in milliseconds and matches Verge dark UI */
+export const DARK_MATTER_STYLE = {
+  version: 8 as const,
+  sources: {
+    'carto-dark': {
+      type: 'raster' as const,
+      tiles: [
+        'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+        'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+        'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+        'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
+      ],
+      tileSize: 256,
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: 'carto-dark-layer',
+      type: 'raster' as const,
+      source: 'carto-dark',
+      minzoom: 0,
+      maxzoom: 20,
+    },
+  ],
+};
 
-/** OSM raster fallback if vector style fails */
+/** Classic OSM raster style */
 export const OSM_RASTER_STYLE = {
   version: 8 as const,
   sources: {
@@ -53,9 +75,14 @@ export const OSM_RASTER_STYLE = {
   ],
 };
 
+/** Primary map style: Fast CARTO Dark Matter (reliable, instant, dark theme) */
+export const MAP_STYLE = DARK_MATTER_STYLE;
+export const MAP_STYLE_URL = FREE_STYLE_URLS.cartoDark;
+
 export const STATUS_COLORS = {
   blocked: '#ef4444',
   partial: '#f59e0b',
   clear: '#22c55e',
   unknown: '#94a3b8',
 } as const;
+

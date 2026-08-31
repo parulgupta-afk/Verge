@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   INDIA_CENTER,
   INDIA_ZOOM,
-  MAP_STYLE_URL,
+  DARK_MATTER_STYLE,
   OSM_RASTER_STYLE,
   STATUS_COLORS,
   CITY_CENTERS,
@@ -44,7 +44,6 @@ export function MapView({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
-  const isFallbackApplied = useRef(false);
 
   // Initialize map once
   useEffect(() => {
@@ -58,35 +57,10 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE_URL,
+      style: DARK_MATTER_STYLE as any,
       center: start.center,
       zoom: start.zoom,
       attributionControl: { compact: true },
-    });
-
-    const fallbackToOsm = () => {
-      if (isFallbackApplied.current) return;
-      isFallbackApplied.current = true;
-      console.info('[Verge] Switching to standard OpenStreetMap raster tiles');
-      try {
-        map.setStyle(OSM_RASTER_STYLE as any);
-      } catch (err) {
-        console.warn('[Verge] Error setting fallback style:', err);
-      }
-    };
-
-    // If OpenFreeMap vector style fails or hangs, switch to OSM
-    const styleTimeout = setTimeout(() => {
-      if (!map.isStyleLoaded()) {
-        fallbackToOsm();
-      }
-    }, 4000);
-
-    map.on('error', (e) => {
-      const msg = String((e as any)?.error?.message || (e as any)?.message || '');
-      if (msg.includes('style') || msg.includes('404') || msg.includes('Failed to fetch')) {
-        fallbackToOsm();
-      }
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
@@ -99,7 +73,6 @@ export function MapView({
     map.addControl(geo, 'top-right');
 
     const handleReady = () => {
-      clearTimeout(styleTimeout);
       setMapReady(true);
       map.resize();
       if (trackUser) {
@@ -138,7 +111,6 @@ export function MapView({
     resizeObserver.observe(mapContainer.current);
 
     return () => {
-      clearTimeout(styleTimeout);
       resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
@@ -152,6 +124,7 @@ export function MapView({
     const { center, zoom } = CITY_CENTERS[activeCity];
     map.flyTo({ center, zoom, duration: 1200 });
   }, [activeCity, mapReady]);
+
 
   // Render / update road segments as a GeoJSON source
   const updateSegmentsLayers = useCallback(() => {
