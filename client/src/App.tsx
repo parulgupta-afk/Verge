@@ -13,7 +13,6 @@ import {
   INITIAL_TRAFFIC_SETTINGS
 } from './data/mockData';
 import { type Place } from './data/indiaPlaces';
-import { initVoices } from './lib/routing';
 import { ensureAnonymousAuth } from './lib/auth';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { NavigationHeader } from './components/NavigationHeader';
@@ -33,6 +32,11 @@ import { OfficialFeedsPanel } from './components/OfficialFeedsPanel';
 import { SocialPanel } from './components/SocialPanel';
 import { AdminDashboard } from './components/AdminDashboard';
 import { RoutePlanner } from './components/RoutePlanner';
+import { MapActionRail } from './components/MapActionRail';
+import { RouteConfidencePanel } from './components/RouteConfidencePanel';
+import { NearMeStrip } from './components/NearMeStrip';
+import { initVoices, listBlockagesOnRoute } from './lib/routing';
+import { nearMeAlerts } from './lib/nearMe';
 import { computeAdminStats } from './lib/adminStats';
 import {
   loadCommutes,
@@ -280,7 +284,13 @@ export default function App() {
     setCurrentScreen('map');
   };
 
+  const routeIssues = activeRoute
+    ? listBlockagesOnRoute(activeRoute.geometry, segments)
+    : [];
+  const nearAlerts = nearMeAlerts(segments, userLocation, 12);
+
   return (
+
     <div className="min-h-screen bg-[#10131b] text-[#e1e2ed] flex flex-col antialiased relative">
       {/* 1. WELCOME SCREEN */}
       {currentScreen === 'welcome' && (
@@ -382,155 +392,48 @@ export default function App() {
               </div>
             )}
 
-            {/* Floating actions */}
+            {/* Verge action rail — Directions / Report / More (not a Maps control wall) */}
             {!selectedSegment && (
-              <div className="absolute bottom-24 right-4 z-20 flex flex-col gap-2 items-end">
-                {activeRoute && (
-                  <button
-                    type="button"
-                    onClick={() => setCurrentScreen('navigation')}
-                    className="flex items-center gap-2 rounded-full bg-blue-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 hover:bg-blue-600 active:scale-95 transition"
-                  >
-                    Start navigation
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setShowRoutePlanner(true)}
-                  className="flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-emerald-500 active:scale-95 transition"
-                >
-                  Directions
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAdmin(true)}
-                  className="flex items-center gap-2 rounded-full bg-violet-700 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-violet-600 active:scale-95 transition"
-                >
-                  Admin
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSocial(true)}
-                  className="flex items-center gap-2 rounded-full bg-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-indigo-500 active:scale-95 transition"
-                >
-                  Social
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowOfficialFeeds(true)}
-                  className="flex items-center gap-2 rounded-full bg-slate-700 px-4 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-600 active:scale-95 transition"
-                >
-                  Civic
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsReportFlowOpen(true)}
-                  className="flex items-center gap-2 rounded-full bg-red-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/30 hover:bg-red-600 active:scale-95 transition"
-                >
-                  Report
-                </button>
-              </div>
-            )}
-
-            {showOfficialFeeds && (
-              <OfficialFeedsPanel
-                notices={OFFICIAL_NOTICES.filter((n) =>
-                  activeCity === 'delhi' ? n.city === 'Delhi' : n.city === 'Bangalore'
-                )}
-                cityLabel={activeCity === 'delhi' ? 'Delhi-NCR' : 'Bangalore'}
+              <MapActionRail
+                hasActiveRoute={Boolean(activeRoute)}
                 emergencyMode={emergencyMode}
+                onDirections={() => setShowRoutePlanner(true)}
+                onStartNav={() => setCurrentScreen('navigation')}
+                onReport={() => setIsReportFlowOpen(true)}
+                onAdmin={() => setShowAdmin(true)}
+                onSocial={() => setShowSocial(true)}
+                onCivic={() => setShowOfficialFeeds(true)}
                 onToggleEmergency={() => setEmergencyMode((v) => !v)}
-                onClose={() => setShowOfficialFeeds(false)}
               />
             )}
 
-            {showSocial && (
-              <SocialPanel
-                commutes={commutes}
-                onClose={() => {
-                  setShowSocial(false);
-                  setShareFeedback(null);
-                }}
-                onNavigate={(c) => {
-                  setShowSocial(false);
-                  if (c.place.city === 'Delhi') setActiveCity('delhi');
-                  if (c.place.city === 'Bangalore') setActiveCity('bangalore');
-                  navigateToPlace(c.place);
-                }}
-                onRemove={(id) => setCommutes(removeCommute(id))}
-                canShare={Boolean(routeDestination)}
-                shareFeedback={shareFeedback}
-                onShareCurrent={async () => {
-                  if (!routeDestination) return;
-                  try {
-                    await shareToClipboard(routeDestination);
-                    setShareFeedback('Copied share code to clipboard');
-                  } catch {
-                    setShareFeedback('Could not copy — try again');
-                  }
-                }}
-                onJoinCode={(code) => {
-                  const payload = decodeShare(code);
-                  if (!payload) {
-                    setShareFeedback('Invalid share code');
-                    return;
-                  }
-                  const place = placeFromShare(payload);
-                  setShowSocial(false);
-                  setShareFeedback(null);
-                  if (place.city === 'Delhi') setActiveCity('delhi');
-                  if (place.city === 'Bangalore') setActiveCity('bangalore');
-                  navigateToPlace(place);
-                }}
-              />
-            )}
-
-
-            {showRoutePlanner && (
-              <RoutePlanner
-                cityFilter={activeCity === 'delhi' ? 'Delhi' : activeCity === 'bangalore' ? 'Bangalore' : 'All'}
-                userLocation={userLocation}
-                onClose={() => setShowRoutePlanner(false)}
-                onPlan={async (from, to) => {
-                  setShowRoutePlanner(false);
-                  if (to.city === 'Delhi') setActiveCity('delhi');
-                  if (to.city === 'Bangalore') setActiveCity('bangalore');
-                  if (from === 'gps') {
-                    if (!userLocation) {
-                      setRerouteMessage('Enable location permission to route from where you are.');
-                      return;
-                    }
-                    await runRouteCalculation(userLocation, to, 'Your location');
-                  } else {
-                    await runRouteCalculation(
-                      { lng: from.lng, lat: from.lat },
-                      to,
-                      from.name
-                    );
-                  }
-                }}
-              />
-            )}
-
-            {showAdmin && (
-              <AdminDashboard
-                stats={computeAdminStats(segments)}
-                segments={segments}
-                heatmapOn={heatmapMode}
-                onToggleHeatmap={() => setHeatmapMode((v) => !v)}
-                onClose={() => setShowAdmin(false)}
-                onSelectSegment={(id) => {
+            {/* Near-you alerts — district-first, not whole India */}
+            {!selectedSegment && !activeRoute && (
+              <NearMeStrip
+                alerts={nearAlerts}
+                onSelect={(id) => {
                   const seg = segments.find((s) => s.id === id);
-                  if (seg) {
-                    setSelectedSegment(seg);
-                    setShowAdmin(false);
-                  }
+                  if (seg) setSelectedSegment(seg);
                 }}
               />
             )}
 
+            {/* Route confidence — transparent issues on *this* path */}
+            {activeRoute && !selectedSegment && (
+              <RouteConfidencePanel
+                destinationLabel={routeDestination?.name}
+                durationText={activeRoute.durationText}
+                distanceText={activeRoute.distanceText}
+                issues={routeIssues}
+                onClose={() => clearRoute()}
+                onStart={() => setCurrentScreen('navigation')}
+                onOpenSegment={(id) => {
+                  const seg = segments.find((s) => s.id === id);
+                  if (seg) setSelectedSegment(seg);
+                }}
+              />
+            )}
 
-            {/* Selected Segment Detail Bottom Sheet */}
             {selectedSegment && (
               <SegmentDetailSheet
                 segment={selectedSegment}
@@ -670,6 +573,42 @@ export default function App() {
           allSegments={segments}
           onClose={() => setIsReportFlowOpen(false)}
           onSubmitReport={handleCreateReport}
+        />
+      )}
+
+
+      {/* MODAL: From → To route planner */}
+      {showRoutePlanner && (
+        <RoutePlanner
+          cityFilter={
+            activeCity === 'delhi'
+              ? 'Delhi'
+              : activeCity === 'bangalore'
+              ? 'Bangalore'
+              : 'All'
+          }
+          userLocation={userLocation}
+          onClose={() => setShowRoutePlanner(false)}
+          onPlan={async (from, to) => {
+            setShowRoutePlanner(false);
+            if (to.city === 'Delhi') setActiveCity('delhi');
+            if (to.city === 'Bangalore') setActiveCity('bangalore');
+            if (from === 'gps') {
+              if (!userLocation) {
+                setRerouteMessage(
+                  'Location needed for From = My location. Allow GPS or pick a start place.'
+                );
+                return;
+              }
+              await runRouteCalculation(userLocation, to, 'Your location');
+            } else {
+              await runRouteCalculation(
+                { lng: from.lng, lat: from.lat },
+                to,
+                from.name
+              );
+            }
+          }}
         />
       )}
 

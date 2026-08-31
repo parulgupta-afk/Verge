@@ -192,3 +192,47 @@ export function buildRerouteExplanation(opts: {
 
 // Back-compat: App still imports speak from routing
 export { speak, stopSpeaking, isVoiceMuted, setVoiceMuted, initVoices } from './voice';
+
+/** All verified/high-confidence issues that appear near the active route geometry. */
+export function listBlockagesOnRoute(
+  routeGeometry: GeoJSON.LineString | null | undefined,
+  segments: Array<{
+    id: string;
+    status: string;
+    geometry?: GeoJSON.LineString;
+    confidence: number;
+    name?: string;
+    updatedAt?: string;
+  }>
+): Array<{ id: string; name: string; status: string; confidence: number; updatedAt?: string }> {
+  if (!routeGeometry?.coordinates?.length) return [];
+  const out: Array<{ id: string; name: string; status: string; confidence: number; updatedAt?: string }> = [];
+  for (const seg of segments) {
+    if ((seg.status !== 'blocked' && seg.status !== 'partial') || seg.confidence < 55) continue;
+    if (!seg.geometry?.coordinates?.length) continue;
+    const coords = seg.geometry.coordinates;
+    const lons = coords.map((c) => c[0]);
+    const lats = coords.map((c) => c[1]);
+    const minLon = Math.min(...lons) - 0.012;
+    const maxLon = Math.max(...lons) + 0.012;
+    const minLat = Math.min(...lats) - 0.012;
+    const maxLat = Math.max(...lats) + 0.012;
+    let hit = false;
+    for (const [lng, lat] of routeGeometry.coordinates) {
+      if (lng >= minLon && lng <= maxLon && lat >= minLat && lat <= maxLat) {
+        hit = true;
+        break;
+      }
+    }
+    if (hit) {
+      out.push({
+        id: seg.id,
+        name: seg.name || 'Reported segment',
+        status: seg.status,
+        confidence: seg.confidence,
+        updatedAt: seg.updatedAt,
+      });
+    }
+  }
+  return out.sort((a, b) => b.confidence - a.confidence);
+}

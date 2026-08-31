@@ -103,7 +103,14 @@ export function RoutePlanner({ cityFilter, userLocation, onClose, onPlan }: Prop
     Boolean(toPlace) && (fromMode === 'gps' ? Boolean(userLocation) : Boolean(fromPlace));
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 max-h-[80vh] overflow-y-auto rounded-t-2xl border border-slate-600 bg-slate-950/95 shadow-2xl">
+    <>
+    <button
+      type="button"
+      aria-label="Close planner"
+      className="fixed inset-0 z-[55] bg-black/50"
+      onClick={onClose}
+    />
+    <div className="fixed inset-x-0 bottom-0 z-[60] max-h-[85vh] overflow-y-auto rounded-t-2xl border border-slate-600 bg-slate-950/98 shadow-2xl max-w-lg mx-auto">
       <div className="sticky top-0 flex items-center justify-between border-b border-slate-700 bg-slate-950/95 px-4 py-3">
         <div>
           <div className="text-sm font-semibold text-white">Plan route · From → To</div>
@@ -240,5 +247,6 @@ export function RoutePlanner({ cityFilter, userLocation, onClose, onPlan }: Prop
         </button>
       </div>
     </div>
+    </>
   );
 }
