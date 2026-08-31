@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { RoadSegment, ReportStatus } from '../types';
 import { INDIA_SEED_SEGMENTS } from '../data/indiaSeedSegments';
-import { fetchSegments, voteOnSegment, submitReport, subscribeToSegments } from '../lib/segmentsApi';
-import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  fetchSegmentsWithStatus,
+  voteOnSegment,
+  submitReport,
+  subscribeToSegments,
+} from '../lib/segmentsApi';
 import {
   saveSegmentSnapshot,
   loadSegmentSnapshot,
@@ -23,10 +27,13 @@ export function useSegments() {
 
   useEffect(() => {
     let unsub = () => {};
+    let isMounted = true;
+
     (async () => {
       if (isProbablyOffline()) {
         const cached = loadSegmentSnapshot();
         if (cached?.length) {
+          if (!isMounted) return;
           setSegments(cached);
           setDataSource('local');
           const meta = snapshotMeta();
@@ -37,26 +44,42 @@ export function useSegments() {
           );
           return;
         }
+        if (!isMounted) return;
         setOfflineBanner('Offline — using built-in India seed data');
       }
-      const data = await fetchSegments();
-      setSegments(data);
-      setDataSource(isSupabaseConfigured ? 'supabase' : 'local');
-      saveSegmentSnapshot(data);
-      setOfflineBanner(null);
 
-      unsub = subscribeToSegments((seg) => {
-        setSegments((prev) => {
-          const i = prev.findIndex((s) => s.id === seg.id);
-          if (i < 0) return [...prev, seg];
-          const next = [...prev];
-          next[i] = { ...next[i], ...seg };
-          return next;
+      const { segments: data, isDbLive, notice } = await fetchSegmentsWithStatus();
+      if (!isMounted) return;
+
+      setSegments(data);
+      setDataSource(isDbLive ? 'supabase' : 'local');
+      saveSegmentSnapshot(data);
+      if (notice) {
+        setOfflineBanner(notice);
+      } else {
+        setOfflineBanner(null);
+      }
+
+      if (isDbLive) {
+        unsub = subscribeToSegments((seg) => {
+          if (!isMounted) return;
+          setSegments((prev) => {
+            const i = prev.findIndex((s) => s.id === seg.id);
+            if (i < 0) return [...prev, seg];
+            const next = [...prev];
+            next[i] = { ...next[i], ...seg };
+            return next;
+          });
         });
-      });
+      }
     })();
-    return () => unsub();
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
+
 
   useEffect(() => {
     localStorage.setItem('verge_segments_india', JSON.stringify(segments));

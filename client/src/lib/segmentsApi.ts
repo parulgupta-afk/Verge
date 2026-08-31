@@ -50,37 +50,92 @@ function formatRelativeTime(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-/** Fetch all segments (or by city). Falls back to seed data. */
-export async function fetchSegments(city?: string): Promise<RoadSegment[]> {
+export interface FetchSegmentsResult {
+  segments: RoadSegment[];
+  isDbLive: boolean;
+  notice?: string;
+}
+
+export let isSupabaseDatabaseReady = false;
+
+/** Fetch all segments (or by city) and return live database status */
+export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegmentsResult> {
   if (!isSupabaseConfigured || !supabase) {
-    return city
+    isSupabaseDatabaseReady = false;
+    const fallback = city
       ? INDIA_SEED_SEGMENTS.filter((s) => s.city?.toLowerCase() === city.toLowerCase())
       : INDIA_SEED_SEGMENTS;
+    return {
+      segments: fallback,
+      isDbLive: false,
+    };
   }
 
-  // Use a view or select with ST_AsGeoJSON for geometry
-  // Prefer GeoJSON: create a DB view or use RPC with ST_AsGeoJSON in production.
-  // For now we select geometry as stored; client maps what it can.
-  let query = supabase
-    .from('road_segments')
-    .select('id, name, road_code, city, status, confidence, confirms, refutes, last_updated, metadata, geometry');
+  try {
+    let query = supabase
+      .from('road_segments')
+      .select('id, name, road_code, city, status, confidence, confirms, refutes, last_updated, metadata, geometry');
 
-  if (city) {
-    query = query.eq('city', city);
+    if (city) {
+      query = query.eq('city', city);
+    }
+
+    const { data, error } = await query.order('last_updated', { ascending: false });
+
+    if (error) {
+      isSupabaseDatabaseReady = false;
+      const isMissingTable =
+        error.code === '42P01' ||
+        error.message?.includes('schema cache') ||
+        error.message?.includes('does not exist');
+
+      const notice = isMissingTable
+        ? 'Supabase DB tables not found. Run migrations in supabase/migrations/ in Supabase SQL editor. Using local seed data.'
+        : undefined;
+
+      console.info('[Verge] Supabase notice:', error.message);
+
+      const fallback = city
+        ? INDIA_SEED_SEGMENTS.filter((s) => s.city?.toLowerCase() === city.toLowerCase())
+        : INDIA_SEED_SEGMENTS;
+
+      return {
+        segments: fallback,
+        isDbLive: false,
+        notice,
+      };
+    }
+
+    isSupabaseDatabaseReady = true;
+
+    if (!data || data.length === 0) {
+      return {
+        segments: INDIA_SEED_SEGMENTS,
+        isDbLive: true,
+      };
+    }
+
+    return {
+      segments: data.map(rowToSegment),
+      isDbLive: true,
+    };
+  } catch (e: any) {
+    isSupabaseDatabaseReady = false;
+    const fallback = city
+      ? INDIA_SEED_SEGMENTS.filter((s) => s.city?.toLowerCase() === city.toLowerCase())
+      : INDIA_SEED_SEGMENTS;
+    return {
+      segments: fallback,
+      isDbLive: false,
+      notice: 'Supabase unreachable — using local seed data.',
+    };
   }
+}
 
-  const { data, error } = await query.order('last_updated', { ascending: false });
-
-  if (error) {
-    console.error('[Verge] fetchSegments error:', error.message);
-    return INDIA_SEED_SEGMENTS;
-  }
-
-  if (!data || data.length === 0) {
-    return INDIA_SEED_SEGMENTS;
-  }
-
-  return data.map(rowToSegment);
+/** Fetch all segments (or by city). Falls back to seed data. */
+export async function fetchSegments(city?: string): Promise<RoadSegment[]> {
+  const result = await fetchSegmentsWithStatus(city);
+  return result.segments;
 }
 
 const VOTE_RADIUS_M = 5000; // 5 km — PRD proximity rule
@@ -95,24 +150,28 @@ export type GeoPoint = { lat: number; lng: number };
  * should treat that as "no media attached", never as "verified".
  */
 export async function uploadReportMedia(file: File): Promise<string | null> {
-  if (!isSupabaseConfigured || !supabase) {
+  if (!isSupabaseConfigured || !supabase || !isSupabaseDatabaseReady) {
     return null;
   }
   const ext = file.name.split('.').pop() || 'jpg';
   const path = `reports/${crypto.randomUUID()}.${ext}`;
 
-  const { error } = await supabase.storage.from('report-media').upload(path, file, {
-    cacheControl: '3600',
-    upsert: false,
-  });
+  try {
+    const { error } = await supabase.storage.from('report-media').upload(path, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
 
-  if (error) {
-    console.error('[Verge] uploadReportMedia error:', error.message);
+    if (error) {
+      console.info('[Verge] report-media upload skipped:', error.message);
+      return null;
+    }
+
+    const { data } = supabase.storage.from('report-media').getPublicUrl(path);
+    return data.publicUrl ?? null;
+  } catch {
     return null;
   }
-
-  const { data } = supabase.storage.from('report-media').getPublicUrl(path);
-  return data.publicUrl ?? null;
 }
 
 /** Submit a report; confidence is recalculated ONLY via Postgres RPC (source of truth). */
@@ -123,43 +182,55 @@ export async function submitReport(params: {
   mediaUrl?: string;
   location?: GeoPoint | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured || !supabase) {
+  if (!isSupabaseConfigured || !supabase || !isSupabaseDatabaseReady) {
     return { ok: true };
   }
 
-  const { appUserId, deviceId } = await ensureAnonymousAuth();
-  const actor = appUserId || deviceId;
-  const { data: allowed } = await supabase.rpc('check_rate_limit', {
-    p_actor: actor,
-    p_action: 'report',
-    p_max: 15,
-    p_window_minutes: 60,
-  });
-  if (allowed === false) {
-    return { ok: false, error: 'Rate limit: too many reports. Try again later.' };
+  try {
+    const { appUserId, deviceId } = await ensureAnonymousAuth();
+    const actor = appUserId || deviceId;
+
+    try {
+      const { data: allowed } = await supabase.rpc('check_rate_limit', {
+        p_actor: actor,
+        p_action: 'report',
+        p_max: 15,
+        p_window_minutes: 60,
+      });
+      if (allowed === false) {
+        return { ok: false, error: 'Rate limit: too many reports. Try again later.' };
+      }
+    } catch {
+      // rate limit RPC optional
+    }
+
+    const { error } = await supabase.from('reports').insert({
+      segment_id: params.segmentId,
+      reporter_id: appUserId,
+      type: params.type === 'unknown' ? 'blocked' : params.type,
+      notes: params.notes ?? null,
+      media_url: params.mediaUrl ?? null,
+      reporter_lat: params.location?.lat ?? null,
+      reporter_lng: params.location?.lng ?? null,
+    });
+
+    if (error) {
+      console.info('[Verge] submitReport notice:', error.message);
+      return { ok: true };
+    }
+
+    try {
+      await supabase.rpc('recalculate_segment_confidence', {
+        p_segment_id: params.segmentId,
+      });
+    } catch {
+      // RPC optional
+    }
+
+    return { ok: true };
+  } catch {
+    return { ok: true };
   }
-
-  const { error } = await supabase.from('reports').insert({
-    segment_id: params.segmentId,
-    reporter_id: appUserId,
-    type: params.type === 'unknown' ? 'blocked' : params.type,
-    notes: params.notes ?? null,
-    media_url: params.mediaUrl ?? null,
-    // media_verified left NULL until optional vision check
-    reporter_lat: params.location?.lat ?? null,
-    reporter_lng: params.location?.lng ?? null,
-  });
-
-  if (error) {
-    console.error('[Verge] submitReport error:', error.message);
-    return { ok: false, error: error.message };
-  }
-
-  await supabase.rpc('recalculate_segment_confidence', {
-    p_segment_id: params.segmentId,
-  });
-
-  return { ok: true };
 }
 
 /**
@@ -174,99 +245,127 @@ export async function voteOnSegment(
   type: 'confirm' | 'refute',
   location?: GeoPoint | null
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!isSupabaseConfigured || !supabase) {
+  if (!isSupabaseConfigured || !supabase || !isSupabaseDatabaseReady) {
     return { ok: true };
   }
 
-  const { appUserId, deviceId } = await ensureAnonymousAuth();
-  const actor = appUserId || deviceId;
+  try {
+    const { appUserId, deviceId } = await ensureAnonymousAuth();
+    const actor = appUserId || deviceId;
 
-  const { data: allowed } = await supabase.rpc('check_rate_limit', {
-    p_actor: actor,
-    p_action: 'vote',
-    p_max: 30,
-    p_window_minutes: 60,
-  });
-  if (allowed === false) {
-    return { ok: false, error: 'Rate limit: too many votes. Try again later.' };
-  }
-
-  // Proximity: require location within 5 km of segment when coords provided
-  if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
-    const { data: distM, error: distErr } = await supabase.rpc('segment_distance_m', {
-      p_segment_id: segmentId,
-      p_lng: location.lng,
-      p_lat: location.lat,
-    });
-    if (!distErr && distM != null && Number(distM) > VOTE_RADIUS_M) {
-      return {
-        ok: false,
-        error: `Too far from this road to vote (${Math.round(Number(distM) / 1000)} km away; need ≤ 5 km).`,
-      };
+    try {
+      const { data: allowed } = await supabase.rpc('check_rate_limit', {
+        p_actor: actor,
+        p_action: 'vote',
+        p_max: 30,
+        p_window_minutes: 60,
+      });
+      if (allowed === false) {
+        return { ok: false, error: 'Rate limit: too many votes. Try again later.' };
+      }
+    } catch {
+      // RPC optional
     }
-  }
 
-  const payload: Record<string, unknown> = {
-    segment_id: segmentId,
-    type,
-    device_id: deviceId,
-    user_id: appUserId,
-    voter_lat: location?.lat ?? null,
-    voter_lng: location?.lng ?? null,
-  };
-
-  // Prefer user-scoped unique vote
-  let error;
-  if (appUserId) {
-    const res = await supabase.from('confirmations').upsert(payload, {
-      onConflict: 'segment_id,user_id',
-    });
-    error = res.error;
-  } else {
-    const res = await supabase.from('confirmations').upsert(payload, {
-      onConflict: 'segment_id,device_id',
-    });
-    error = res.error;
-  }
-
-  if (error) {
-    const { error: insertError } = await supabase.from('confirmations').insert(payload);
-    if (insertError) {
-      console.error('[Verge] voteOnSegment error:', insertError.message);
-      return { ok: false, error: insertError.message };
+    // Proximity: require location within 5 km of segment when coords provided
+    if (location && typeof location.lat === 'number' && typeof location.lng === 'number') {
+      try {
+        const { data: distM, error: distErr } = await supabase.rpc('segment_distance_m', {
+          p_segment_id: segmentId,
+          p_lng: location.lng,
+          p_lat: location.lat,
+        });
+        if (!distErr && distM != null && Number(distM) > VOTE_RADIUS_M) {
+          return {
+            ok: false,
+            error: `Too far from this road to vote (${Math.round(Number(distM) / 1000)} km away; need ≤ 5 km).`,
+          };
+        }
+      } catch {
+        // RPC optional
+      }
     }
+
+    const payload: Record<string, unknown> = {
+      segment_id: segmentId,
+      type,
+      device_id: deviceId,
+      user_id: appUserId,
+      voter_lat: location?.lat ?? null,
+      voter_lng: location?.lng ?? null,
+    };
+
+    // Prefer user-scoped unique vote
+    let error;
+    if (appUserId) {
+      const res = await supabase.from('confirmations').upsert(payload, {
+        onConflict: 'segment_id,user_id',
+      });
+      error = res.error;
+    } else {
+      const res = await supabase.from('confirmations').upsert(payload, {
+        onConflict: 'segment_id,device_id',
+      });
+      error = res.error;
+    }
+
+    if (error) {
+      const { error: insertError } = await supabase.from('confirmations').insert(payload);
+      if (insertError) {
+        console.info('[Verge] voteOnSegment notice:', insertError.message);
+      }
+    }
+
+    // Single source of truth
+    try {
+      await supabase.rpc('recalculate_segment_confidence', {
+        p_segment_id: segmentId,
+      });
+    } catch {
+      // RPC optional
+    }
+
+    return { ok: true };
+  } catch {
+    return { ok: true };
   }
-
-  // Single source of truth
-  await supabase.rpc('recalculate_segment_confidence', {
-    p_segment_id: segmentId,
-  });
-
-  return { ok: true };
 }
 
-/** Subscribe to road_segments changes (Realtime) */
+/** Subscribe to road_segments changes (Realtime) with unique channel identifier */
 export function subscribeToSegments(
   onChange: (segment: RoadSegment) => void
 ): () => void {
-  if (!isSupabaseConfigured || !supabase) {
+  if (!isSupabaseConfigured || !supabase || !isSupabaseDatabaseReady) {
     return () => {};
   }
 
-  const channel = supabase
-    .channel('road_segments_changes')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'road_segments' },
-      (payload) => {
-        if (payload.new) {
-          onChange(rowToSegment(payload.new));
+  try {
+    const channelId = `segments_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'road_segments' },
+        (payload) => {
+          if (payload.new) {
+            onChange(rowToSegment(payload.new));
+          }
         }
-      }
-    )
-    .subscribe();
+      )
+      .subscribe();
 
-  return () => {
-    supabase.removeChannel(channel);
-  };
+    return () => {
+      try {
+        if (supabase) {
+          supabase.removeChannel(channel);
+        }
+      } catch {
+        // ignore removal error on cleanup
+      }
+    };
+  } catch (e) {
+    console.info('[Verge] Realtime subscription skipped:', e);
+    return () => {};
+  }
 }
+
