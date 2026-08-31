@@ -10,17 +10,26 @@ server/dist/
 
 # Env
 .env
-.env.local
-.env.*.local
-client/.env.local
+.env.*
+!.env.example
+client/.env
+client/.env.*
+!client/.env.example
 server/.env
+server/.env.*
+!server/.env.example
 
 # Logs & OS
 *.log
 .DS_Store
 Thumbs.db
 
-# IDE
+# IDE & Editor
 .idea/
 .vscode/
 *.swp
+*.swo
+
+# Nested repo clones / temp
+verge/
+
