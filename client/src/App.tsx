@@ -49,8 +49,8 @@ import { useRouting } from './hooks/useRouting';
 import { checkMediaEvidence } from './services/mediaVerification';
 
 export default function App() {
-  // Navigation screen state
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>('welcome');
+  // Navigation screen state - start directly on the map
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>('map');
 
   const [activeCity, setActiveCity] = useState<CityKey>('delhi');
   const [emergencyMode, setEmergencyMode] = useState(false);
@@ -304,7 +304,7 @@ export default function App() {
           />
 
           {/* Main Map Viewport — real MapLibre map (India) */}
-          <main className="flex-1 w-full h-full relative">
+          <main className="flex-1 w-full h-full relative min-h-0">
             <MapView
               segments={segments.filter(
                 (s) =>

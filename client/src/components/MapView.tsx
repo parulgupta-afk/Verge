@@ -1,7 +1,15 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { INDIA_CENTER, INDIA_ZOOM, MAP_STYLE_URL, OSM_RASTER_STYLE, STATUS_COLORS, CITY_CENTERS, CityKey } from '../lib/mapConfig';
+import {
+  INDIA_CENTER,
+  INDIA_ZOOM,
+  MAP_STYLE_URL,
+  OSM_RASTER_STYLE,
+  STATUS_COLORS,
+  CITY_CENTERS,
+  CityKey,
+} from '../lib/mapConfig';
 import type { RoadSegment } from '../types';
 
 interface MapViewProps {
@@ -25,8 +33,8 @@ export function MapView({
   segments = [],
   selectedSegmentId,
   onSegmentClick,
-  initialCity,
-  activeCity,
+  initialCity = 'delhi',
+  activeCity = 'delhi',
   className = '',
   routeGeometry = null,
   heatmapMode = false,
@@ -36,28 +44,48 @@ export function MapView({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const isFallbackApplied = useRef(false);
 
   // Initialize map once
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
-    const start = initialCity && CITY_CENTERS[initialCity]
+    const start = activeCity && CITY_CENTERS[activeCity]
+      ? CITY_CENTERS[activeCity]
+      : initialCity && CITY_CENTERS[initialCity]
       ? CITY_CENTERS[initialCity]
       : { center: INDIA_CENTER, zoom: INDIA_ZOOM };
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE_URL, // free OpenFreeMap — no Mapbox
+      style: MAP_STYLE_URL,
       center: start.center,
       zoom: start.zoom,
       attributionControl: { compact: true },
     });
 
+    const fallbackToOsm = () => {
+      if (isFallbackApplied.current) return;
+      isFallbackApplied.current = true;
+      console.info('[Verge] Switching to standard OpenStreetMap raster tiles');
+      try {
+        map.setStyle(OSM_RASTER_STYLE as any);
+      } catch (err) {
+        console.warn('[Verge] Error setting fallback style:', err);
+      }
+    };
+
+    // If OpenFreeMap vector style fails or hangs, switch to OSM
+    const styleTimeout = setTimeout(() => {
+      if (!map.isStyleLoaded()) {
+        fallbackToOsm();
+      }
+    }, 4000);
+
     map.on('error', (e) => {
-      // If free vector style fails, fall back to OSM raster
-      const msg = String((e as any)?.error?.message || e);
-      if (msg && map.getStyle()?.sources && !map.getSource('osm')) {
-        console.warn('[Verge] style issue, using OSM raster fallback', msg);
+      const msg = String((e as any)?.error?.message || (e as any)?.message || '');
+      if (msg.includes('style') || msg.includes('404') || msg.includes('Failed to fetch')) {
+        fallbackToOsm();
       }
     });
 
@@ -70,17 +98,26 @@ export function MapView({
     });
     map.addControl(geo, 'top-right');
 
-    map.on('load', () => {
+    const handleReady = () => {
+      clearTimeout(styleTimeout);
       setMapReady(true);
+      map.resize();
       if (trackUser) {
-        // Auto-show user location when permission allows
         setTimeout(() => {
           try {
             geo.trigger();
           } catch {
-            /* user may deny */
+            /* optional GPS */
           }
         }, 800);
+      }
+    };
+
+    map.on('load', handleReady);
+    map.on('styledata', () => {
+      map.resize();
+      if (map.isStyleLoaded()) {
+        setMapReady(true);
       }
     });
 
@@ -94,12 +131,19 @@ export function MapView({
 
     mapRef.current = map;
 
+    // ResizeObserver ensures canvas always fills container
+    const resizeObserver = new ResizeObserver(() => {
+      map.resize();
+    });
+    resizeObserver.observe(mapContainer.current);
+
     return () => {
+      clearTimeout(styleTimeout);
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
-  }, [initialCity]);
-
+  }, []);
 
   // Fly to city when activeCity changes
   useEffect(() => {
@@ -109,10 +153,10 @@ export function MapView({
     map.flyTo({ center, zoom, duration: 1200 });
   }, [activeCity, mapReady]);
 
-    // Render / update road segments as a GeoJSON source
-  useEffect(() => {
+  // Render / update road segments as a GeoJSON source
+  const updateSegmentsLayers = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) return;
+    if (!map || !mapReady || !map.isStyleLoaded()) return;
 
     const geojson: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
@@ -133,8 +177,9 @@ export function MapView({
         })),
     };
 
-    if (map.getSource('road-segments')) {
-      (map.getSource('road-segments') as maplibregl.GeoJSONSource).setData(geojson);
+    const source = map.getSource('road-segments') as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(geojson);
     } else {
       map.addSource('road-segments', {
         type: 'geojson',
@@ -142,64 +187,72 @@ export function MapView({
       });
 
       // Casing (outline)
-      map.addLayer({
-        id: 'road-segments-casing',
-        type: 'line',
-        source: 'road-segments',
-        paint: {
-          'line-color': '#000000',
-          'line-width': 7,
-          'line-opacity': 0.25,
-        },
-      });
+      if (!map.getLayer('road-segments-casing')) {
+        map.addLayer({
+          id: 'road-segments-casing',
+          type: 'line',
+          source: 'road-segments',
+          paint: {
+            'line-color': '#000000',
+            'line-width': 7,
+            'line-opacity': 0.25,
+          },
+        });
+      }
 
       // Main colored line
-      map.addLayer({
-        id: 'road-segments-line',
-        type: 'line',
-        source: 'road-segments',
-        paint: {
-          'line-color': [
-            'match',
-            ['get', 'status'],
-            'blocked', STATUS_COLORS.blocked,
-            'partial', STATUS_COLORS.partial,
-            'clear', STATUS_COLORS.clear,
-            STATUS_COLORS.unknown,
-          ],
-          'line-width': [
-            'interpolate',
-            ['linear'],
-            ['get', 'confidence'],
-            0, 3,
-            100, 6,
-          ],
-          'line-opacity': 0.9,
-        },
-      });
+      if (!map.getLayer('road-segments-line')) {
+        map.addLayer({
+          id: 'road-segments-line',
+          type: 'line',
+          source: 'road-segments',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'status'],
+              'blocked', STATUS_COLORS.blocked,
+              'partial', STATUS_COLORS.partial,
+              'clear', STATUS_COLORS.clear,
+              STATUS_COLORS.unknown,
+            ],
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['get', 'confidence'],
+              0, 3,
+              100, 6,
+            ],
+            'line-opacity': 0.9,
+          },
+        });
 
-      // Click handler
-      map.on('click', 'road-segments-line', (e) => {
-        if (!e.features?.length || !onSegmentClick) return;
-        const f = e.features[0];
-        const id = f.properties?.id;
-        const seg = segments.find((s) => s.id === id);
-        if (seg) onSegmentClick(seg);
-      });
+        // Click handler
+        map.on('click', 'road-segments-line', (e) => {
+          if (!e.features?.length || !onSegmentClick) return;
+          const f = e.features[0];
+          const id = f.properties?.id;
+          const seg = segments.find((s) => s.id === id);
+          if (seg) onSegmentClick(seg);
+        });
 
-      map.on('mouseenter', 'road-segments-line', () => {
-        map.getCanvas().style.cursor = 'pointer';
-      });
-      map.on('mouseleave', 'road-segments-line', () => {
-        map.getCanvas().style.cursor = '';
-      });
+        map.on('mouseenter', 'road-segments-line', () => {
+          map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', 'road-segments-line', () => {
+          map.getCanvas().style.cursor = '';
+        });
+      }
     }
   }, [segments, mapReady, onSegmentClick]);
+
+  useEffect(() => {
+    updateSegmentsLayers();
+  }, [updateSegmentsLayers]);
 
   // Phase 8 heatmap styling
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !map.getLayer('road-segments-line')) return;
+    if (!map || !mapReady || !map.isStyleLoaded() || !map.getLayer('road-segments-line')) return;
     if (heatmapMode) {
       map.setPaintProperty('road-segments-line', 'line-width', [
         'interpolate',
@@ -225,7 +278,7 @@ export function MapView({
   // Draw / update active route
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) return;
+    if (!map || !mapReady || !map.isStyleLoaded()) return;
 
     const data: GeoJSON.FeatureCollection = {
       type: 'FeatureCollection',
@@ -240,30 +293,35 @@ export function MapView({
         : [],
     };
 
-    if (map.getSource('active-route')) {
-      (map.getSource('active-route') as maplibregl.GeoJSONSource).setData(data);
+    const source = map.getSource('active-route') as maplibregl.GeoJSONSource | undefined;
+    if (source) {
+      source.setData(data);
     } else if (routeGeometry) {
       map.addSource('active-route', { type: 'geojson', data });
-      map.addLayer({
-        id: 'active-route-casing',
-        type: 'line',
-        source: 'active-route',
-        paint: {
-          'line-color': '#1e3a8a',
-          'line-width': 10,
-          'line-opacity': 0.35,
-        },
-      });
-      map.addLayer({
-        id: 'active-route-line',
-        type: 'line',
-        source: 'active-route',
-        paint: {
-          'line-color': '#3b82f6',
-          'line-width': 5,
-          'line-opacity': 0.95,
-        },
-      });
+      if (!map.getLayer('active-route-casing')) {
+        map.addLayer({
+          id: 'active-route-casing',
+          type: 'line',
+          source: 'active-route',
+          paint: {
+            'line-color': '#1e3a8a',
+            'line-width': 10,
+            'line-opacity': 0.35,
+          },
+        });
+      }
+      if (!map.getLayer('active-route-line')) {
+        map.addLayer({
+          id: 'active-route-line',
+          type: 'line',
+          source: 'active-route',
+          paint: {
+            'line-color': '#3b82f6',
+            'line-width': 5,
+            'line-opacity': 0.95,
+          },
+        });
+      }
     }
 
     // Fit bounds when route appears
@@ -277,7 +335,7 @@ export function MapView({
   // Highlight selected segment
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !map.getLayer('road-segments-line')) return;
+    if (!map || !mapReady || !map.isStyleLoaded() || !map.getLayer('road-segments-line')) return;
 
     if (selectedSegmentId) {
       map.setFilter('road-segments-line', ['==', ['get', 'id'], selectedSegmentId]);
@@ -286,16 +344,17 @@ export function MapView({
   }, [selectedSegmentId, mapReady]);
 
   return (
-    <div className={`relative w-full h-full ${className}`}>
+    <div className={`relative w-full h-full min-h-[300px] ${className}`}>
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
       {!mapReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 text-white z-10">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2" />
-            <p className="text-sm">Loading India map…</p>
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs text-white z-10 pointer-events-none transition-opacity duration-300">
+          <div className="text-center bg-slate-900/90 border border-slate-700 px-5 py-3 rounded-2xl shadow-2xl">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-blue-400 border-t-transparent mx-auto mb-2" />
+            <p className="text-xs text-slate-300 font-medium">Rendering India map…</p>
           </div>
         </div>
       )}
     </div>
   );
 }
+
