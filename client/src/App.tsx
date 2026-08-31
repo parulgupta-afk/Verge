@@ -12,20 +12,8 @@ import {
   INITIAL_OFFLINE_MAPS,
   INITIAL_TRAFFIC_SETTINGS
 } from './data/mockData';
-import { INDIA_SEED_SEGMENTS } from './data/indiaSeedSegments';
-import { INDIA_PLACES, DEFAULT_ORIGIN_DELHI, DEFAULT_ORIGIN_BLR, type Place } from './data/indiaPlaces';
-import { fetchSegments, voteOnSegment, submitReport, subscribeToSegments } from './lib/segmentsApi';
-import {
-  fetchRoute,
-  fetchRouteAlternatives,
-  routeIntersectsBlocked,
-  buildRerouteExplanation,
-  speak,
-  initVoices,
-  type RouteResult,
-} from './lib/routing';
-import { scoreRoute, rankRoutes, buildComparisonSummary } from './lib/risk';
-import { isSupabaseConfigured } from './lib/supabase';
+import { type Place } from './data/indiaPlaces';
+import { initVoices } from './lib/routing';
 import { ensureAnonymousAuth } from './lib/auth';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { NavigationHeader } from './components/NavigationHeader';
@@ -56,15 +44,14 @@ import {
   type SavedCommute,
 } from './lib/commute';
 import { OFFICIAL_NOTICES } from './data/officialFeeds';
-import { saveSegmentSnapshot, loadSegmentSnapshot, snapshotMeta, isProbablyOffline } from './lib/offlineCache';
+import { useSegments } from './hooks/useSegments';
+import { useRouting } from './hooks/useRouting';
+import { checkMediaEvidence } from './services/mediaVerification';
 
 export default function App() {
   // Navigation screen state
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('welcome');
 
-  // Road segments — India seed first, then hydrate from Supabase if configured
-  const [segments, setSegments] = useState<RoadSegment[]>(INDIA_SEED_SEGMENTS);
-  const [dataSource, setDataSource] = useState<'local' | 'supabase'>('local');
   const [activeCity, setActiveCity] = useState<CityKey>('delhi');
   const [emergencyMode, setEmergencyMode] = useState(false);
   const [showOfficialFeeds, setShowOfficialFeeds] = useState(false);
@@ -75,12 +62,37 @@ export default function App() {
   const [showRoutePlanner, setShowRoutePlanner] = useState(false);
   const [commutes, setCommutes] = useState<SavedCommute[]>(() => loadCommutes());
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
-  const [offlineBanner, setOfflineBanner] = useState<string | null>(null);
 
-  // V1 routing state
-  const [activeRoute, setActiveRoute] = useState<RouteResult | null>(null);
-  const [rerouteMessage, setRerouteMessage] = useState<string | null>(null);
-  const [isRouting, setIsRouting] = useState(false);
+  // Extracted: segments + offline + realtime
+  const {
+    segments,
+    setSegments,
+    dataSource,
+    offlineBanner,
+    confirm: confirmSegment,
+    refute: refuteSegment,
+    report: reportSegment,
+  } = useSegments();
+
+  // Extracted: routing + risk ranking
+  const {
+    activeRoute,
+    routeDestination,
+    
+    rerouteMessage,
+    setRerouteMessage,
+    isRouting,
+    runRouteCalculation,
+    navigateToPlace,
+    startDemoNavigation,
+    clearRoute,
+  } = useRouting({
+    segments,
+    userLocation,
+    emergencyMode,
+    onCommutesChange: setCommutes,
+  });
+  
 
   // Selected road segment
   const [selectedSegment, setSelectedSegment] = useState<RoadSegment | null>(null);
@@ -114,11 +126,6 @@ export default function App() {
 
   // Sync to localStorage
   useEffect(() => {
-    localStorage.setItem('verge_segments_india', JSON.stringify(segments));
-    if (segments.length) saveSegmentSnapshot(segments);
-  }, [segments]);
-
-  useEffect(() => {
     localStorage.setItem('verge_reports', JSON.stringify(reports));
   }, [reports]);
 
@@ -135,196 +142,17 @@ export default function App() {
     ensureAnonymousAuth();
   }, []);
 
-  // Load segments from Supabase when configured; subscribe to realtime updates
-  useEffect(() => {
-    let unsub = () => {};
-    (async () => {
-      if (isProbablyOffline()) {
-        const cached = loadSegmentSnapshot();
-        if (cached?.length) {
-          setSegments(cached);
-          setDataSource('local');
-          const meta = snapshotMeta();
-          setOfflineBanner(
-            meta?.savedAt
-              ? `Offline — showing snapshot from ${new Date(meta.savedAt).toLocaleString()}`
-              : 'Offline — showing last saved snapshot'
-          );
-          return;
-        }
-        setOfflineBanner('Offline — using built-in India seed data');
-      }
-      const data = await fetchSegments();
-      setSegments(data);
-      setDataSource(isSupabaseConfigured ? 'supabase' : 'local');
-      saveSegmentSnapshot(data);
-      setOfflineBanner(null);
-    })();
-
-    if (isSupabaseConfigured) {
-      unsub = subscribeToSegments((updated) => {
-        setSegments((prev) => {
-          const idx = prev.findIndex((s) => s.id === updated.id);
-          if (idx === -1) return [...prev, updated];
-          const next = [...prev];
-          next[idx] = updated;
-          return next;
-        });
-        setSelectedSegment((cur) => (cur?.id === updated.id ? updated : cur));
-      });
-    }
-    return () => unsub();
-  }, []);
-
-  // Handle voting on a segment (client-side preview of confidence formula)
-  const recalcConfidence = (confirms: number, refutes: number) => {
-    const base = confirms / (confirms + refutes + 1);
-    return Math.round(Math.min(100, Math.max(0, base * 100)) * 10) / 10;
-  };
+  // segments load + realtime: useSegments()
 
   const handleConfirmSegment = (segmentId: string) => {
-    // Optimistic local update
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (s.id !== segmentId) return s;
-        const confirms = s.confirms + 1;
-        const confidence = recalcConfidence(confirms, s.refutes);
-        const status =
-          confidence >= 70 && confirms > s.refutes
-            ? 'blocked'
-            : confidence >= 40
-              ? 'partial'
-              : s.status === 'unknown'
-                ? 'partial'
-                : s.status;
-        return {
-          ...s,
-          confirms,
-          confidence,
-          status: status as ReportStatus,
-          updatedAt: 'Just now',
-        };
-      })
-    );
-    // Persist when Supabase is configured
-    voteOnSegment(segmentId, 'confirm', userLocation);
+    confirmSegment(segmentId, userLocation);
   };
 
   const handleRefuteSegment = (segmentId: string) => {
-    setSegments((prev) =>
-      prev.map((s) => {
-        if (s.id !== segmentId) return s;
-        const refutes = s.refutes + 1;
-        const confidence = recalcConfidence(s.confirms, refutes);
-        return {
-          ...s,
-          refutes,
-          confidence,
-          updatedAt: 'Just now',
-        };
-      })
-    );
-    voteOnSegment(segmentId, 'refute', userLocation);
+    refuteSegment(segmentId, userLocation);
   };
 
-
-  // ——— V1 Routing (OSRM) ———
-  const [routeDestination, setRouteDestination] = useState<Place | null>(null);
-
-  const resolveOriginForCity = (city: string) => {
-    if (userLocation) return userLocation;
-    return city === 'Bangalore' ? DEFAULT_ORIGIN_BLR : DEFAULT_ORIGIN_DELHI;
-  };
-
-  const runRouteCalculation = async (
-    origin: { lng: number; lat: number },
-    place: Place,
-    fromLabel?: string
-  ) => {
-    setIsRouting(true);
-    setRerouteMessage(null);
-    setRouteDestination(place);
-    setCommutes(rememberDestination(place));
-    const dest = { lng: place.lng, lat: place.lat };
-
-    let routes = await fetchRouteAlternatives(origin, dest);
-    if (!routes.length) {
-      const single = await fetchRoute(origin, dest);
-      if (single) routes = [single];
-    }
-    setIsRouting(false);
-
-    if (!routes.length) {
-      setRerouteMessage('Could not calculate route. Check network and try again.');
-      return;
-    }
-
-    const labels = ['Route A', 'Route B', 'Route C'];
-    const scoringSegments = emergencyMode
-      ? segments.map((s) =>
-          s.status === 'blocked' || s.status === 'partial'
-            ? { ...s, confidence: Math.min(100, s.confidence + 25) }
-            : s
-        )
-      : segments;
-    const scored = routes.map((r, i) => scoreRoute(r, scoringSegments, labels[i] || `Route ${i + 1}`));
-    const ranked = rankRoutes(scored);
-    const best = ranked[0];
-    setActiveRoute(best.route);
-
-    const summary = buildComparisonSummary(ranked);
-    const fromText = fromLabel || (userLocation ? 'Your location' : 'Start');
-    const detail = `From ${fromText} → ${place.name} · ${best.route.durationText} · ${best.route.distanceText}. ${summary}`;
-    setRerouteMessage(detail);
-
-    if (best.intersectsBlockage) {
-      const blockMsg = buildRerouteExplanation({
-        segmentName: best.blockageName,
-        newDurationText: best.route.durationText,
-      });
-      speak(blockMsg);
-    } else {
-      speak(
-        `Route from ${fromText} to ${place.name}. About ${best.route.durationText}, ${best.route.distanceText}.`
-      );
-    }
-  };
-
-  const navigateToPlace = async (place: Place) => {
-    const origin = resolveOriginForCity(place.city);
-    await runRouteCalculation(
-      origin,
-      place,
-      userLocation ? 'Your location' : undefined
-    );
-  };
-
-  const startDemoNavigation = () => {
-    // Default demo: CP → IIT Delhi area (often hits south ORR reports)
-    const dest = INDIA_PLACES.find((p) => p.id === 'del-iit') || INDIA_PLACES[0];
-    navigateToPlace(dest);
-  };
-
-  const clearRoute = () => {
-    setActiveRoute(null);
-    setRerouteMessage(null);
-    setRouteDestination(null);
-  };
-
-  // Re-check route when segments change (e.g. new blockage)
-  useEffect(() => {
-    if (!activeRoute) return;
-    const { hit, segmentName } = routeIntersectsBlocked(activeRoute.geometry, segments);
-    if (hit) {
-      const msg = buildRerouteExplanation({
-        segmentName,
-        oldDurationText: activeRoute.durationText,
-        newDurationText: activeRoute.durationText,
-      });
-      setRerouteMessage(msg);
-      speak(msg);
-    }
-  }, [segments]); // eslint-disable-line react-hooks/exhaustive-deps
+  // routing: useRouting() — navigateToPlace, runRouteCalculation, clearRoute, etc.
 
   // Handle creating a new report
   const handleCreateReport = (
@@ -358,13 +186,27 @@ export default function App() {
     );
 
     // Persist to Supabase when configured
-    submitReport({
-      segmentId: newReportData.segmentId,
-      type: newReportData.status,
-      notes: newReportData.notes,
-      mediaUrl: newReportData.photoUrl,
-      location: userLocation,
-    });
+    void (async () => {
+      let mediaVerified: boolean | null = null;
+      if (newReportData.photoUrl) {
+        const check = await checkMediaEvidence({
+          mediaUrl: newReportData.photoUrl,
+          type: newReportData.status,
+        });
+        mediaVerified = check.verified;
+        if (check.verified === null) {
+          console.info('[Verge] Media evidence: stored only —', check.note);
+        }
+      }
+      reportSegment({
+        segmentId: newReportData.segmentId,
+        type: newReportData.status,
+        notes: newReportData.notes,
+        mediaUrl: newReportData.photoUrl,
+        location: userLocation,
+      });
+      void mediaVerified;
+    })();
   };
 
   // Handle updating segment condition directly from modal
