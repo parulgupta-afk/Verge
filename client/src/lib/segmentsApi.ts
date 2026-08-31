@@ -87,6 +87,34 @@ const VOTE_RADIUS_M = 5000; // 5 km — PRD proximity rule
 
 export type GeoPoint = { lat: number; lng: number };
 
+/**
+ * Upload evidence photo to Supabase Storage and return its public URL.
+ * This does NOT verify the photo's content — media_verified stays NULL
+ * until a real check (e.g. /api/media/check with a vision model) runs.
+ * Returns null if upload fails or Supabase isn't configured; callers
+ * should treat that as "no media attached", never as "verified".
+ */
+export async function uploadReportMedia(file: File): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabase) {
+    return null;
+  }
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `reports/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage.from('report-media').upload(path, file, {
+    cacheControl: '3600',
+    upsert: false,
+  });
+
+  if (error) {
+    console.error('[Verge] uploadReportMedia error:', error.message);
+    return null;
+  }
+
+  const { data } = supabase.storage.from('report-media').getPublicUrl(path);
+  return data.publicUrl ?? null;
+}
+
 /** Submit a report; confidence is recalculated ONLY via Postgres RPC (source of truth). */
 export async function submitReport(params: {
   segmentId: string;
@@ -241,76 +269,4 @@ export function subscribeToSegments(
   return () => {
     supabase.removeChannel(channel);
   };
-}
-
-/** Audit trail for a segment — reports + confirmations (explainability) */
-export interface SegmentHistoryEvent {
-  id: string;
-  kind: 'report' | 'confirm' | 'refute';
-  type?: string;
-  createdAt: string;
-  trustLabel?: string;
-  notes?: string | null;
-  hasMedia?: boolean;
-}
-
-export async function fetchSegmentHistory(
-  segmentId: string
-): Promise<SegmentHistoryEvent[]> {
-  if (!isSupabaseConfigured || !supabase) {
-    return [];
-  }
-
-  const events: SegmentHistoryEvent[] = [];
-
-  const { data: reports } = await supabase
-    .from('reports')
-    .select('id, type, notes, media_url, created_at, reporter_id, users(trust_weight)')
-    .eq('segment_id', segmentId)
-    .order('created_at', { ascending: false })
-    .limit(40);
-
-  for (const r of reports || []) {
-    const tw = (r as any).users?.trust_weight;
-    events.push({
-      id: `r-${r.id}`,
-      kind: 'report',
-      type: r.type,
-      createdAt: r.created_at,
-      notes: r.notes,
-      hasMedia: Boolean(r.media_url),
-      trustLabel: trustLabelFromWeight(tw),
-    });
-  }
-
-  const { data: votes } = await supabase
-    .from('confirmations')
-    .select('id, type, created_at, user_id, users(trust_weight)')
-    .eq('segment_id', segmentId)
-    .order('created_at', { ascending: false })
-    .limit(40);
-
-  for (const v of votes || []) {
-    const tw = (v as any).users?.trust_weight;
-    events.push({
-      id: `c-${v.id}`,
-      kind: v.type === 'refute' ? 'refute' : 'confirm',
-      type: v.type,
-      createdAt: v.created_at,
-      trustLabel: trustLabelFromWeight(tw),
-    });
-  }
-
-  events.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-  return events;
-}
-
-function trustLabelFromWeight(w: number | null | undefined): string {
-  if (w == null) return 'Anonymous';
-  if (w >= 1.5) return 'High trust';
-  if (w >= 0.9) return 'Standard trust';
-  if (w >= 0.5) return 'Low trust';
-  return 'Very low trust';
 }

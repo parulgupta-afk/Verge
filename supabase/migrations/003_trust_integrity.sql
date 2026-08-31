@@ -35,8 +35,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS confirmations_segment_device_uidx
 ALTER TABLE reports
   ADD COLUMN IF NOT EXISTS reporter_lat DOUBLE PRECISION,
   ADD COLUMN IF NOT EXISTS reporter_lng DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS media_verified BOOLEAN DEFAULT NULL;
+  ADD COLUMN IF NOT EXISTS media_verified BOOLEAN DEFAULT NULL,
   -- NULL = not checked; true/false = vision/heuristic result
+  ADD COLUMN IF NOT EXISTS trust_scored_at TIMESTAMPTZ;
+  -- NULL = not yet folded into reporter trust_weight; set once refresh_reporter_trust() scores it,
+  -- so re-running the cron never double-counts the same report
 
 -- Rate-limit log (simple)
 CREATE TABLE IF NOT EXISTS action_rate_limits (
@@ -208,7 +211,10 @@ $$;
 COMMENT ON FUNCTION recalculate_segment_confidence IS
   'Source of truth: trust-weighted votes + report-type-aware status + mild media bonus (attach vs verified)';
 
--- Trust learning job: compare recent reports to current segment status
+-- Trust learning job: compare recent reports to current segment status.
+-- Only scores each report ONCE (gated on trust_scored_at IS NULL) so that
+-- re-running this on a cron every few hours never double-counts the same
+-- report into reports_total/reports_upheld.
 CREATE OR REPLACE FUNCTION refresh_reporter_trust()
 RETURNS INTEGER
 LANGUAGE plpgsql
@@ -223,6 +229,9 @@ BEGIN
     FROM reports rep
     JOIN road_segments s ON s.id = rep.segment_id
     WHERE rep.reporter_id IS NOT NULL
+      AND rep.trust_scored_at IS NULL
+      -- give a report a little time to accumulate confirms/refutes before judging it
+      AND rep.created_at < NOW() - INTERVAL '2 hours'
       AND rep.created_at > NOW() - INTERVAL '7 days'
   LOOP
     v_aligned := (r.type = r.status)
@@ -244,6 +253,9 @@ BEGIN
         )
       )
     WHERE id = r.reporter_id;
+
+    -- Mark this specific report as scored so it's never counted again
+    UPDATE reports SET trust_scored_at = NOW() WHERE id = r.id;
 
     v_updated := v_updated + 1;
   END LOOP;

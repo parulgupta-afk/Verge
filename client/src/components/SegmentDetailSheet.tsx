@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle, XCircle, Camera, FileEdit, X, ArrowRight, ShieldCheck, Check, History } from 'lucide-react';
+import React, { useState } from 'react';
+import { Clock, CheckCircle, XCircle, Camera, FileEdit, X, ArrowRight, ShieldCheck, ShieldQuestion, Check, Loader2 } from 'lucide-react';
 import { RoadSegment, ReportStatus } from '../types';
-import { fetchSegmentHistory, type SegmentHistoryEvent } from '../lib/segmentsApi';
+import { uploadReportMedia } from '../lib/segmentsApi';
 
 interface SegmentDetailSheetProps {
   segment: RoadSegment;
@@ -23,22 +23,9 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
   const [userVoted, setUserVoted] = useState<'confirmed' | 'refuted' | null>(null);
   const [customNote, setCustomNote] = useState<string>(segment.notes || '');
   const [photoPreview, setPhotoPreview] = useState<string | null>(segment.photoUrl || null);
-  const [history, setHistory] = useState<SegmentHistoryEvent[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setHistoryLoading(true);
-    fetchSegmentHistory(segment.id).then((ev) => {
-      if (!cancelled) {
-        setHistory(ev);
-        setHistoryLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [segment.id]);
+  const [photoUploadedUrl, setPhotoUploadedUrl] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoUploadFailed, setPhotoUploadFailed] = useState(false);
 
   const handleVote = (type: 'confirmed' | 'refuted') => {
     setUserVoted(type);
@@ -46,11 +33,28 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
     else onRefute(segment.id);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const url = URL.createObjectURL(file);
-      setPhotoPreview(url);
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+
+    // Local preview shows immediately, but this is NOT verification —
+    // it's just what the user selected, before it's even uploaded.
+    const localPreviewUrl = URL.createObjectURL(file);
+    setPhotoPreview(localPreviewUrl);
+    setPhotoUploadedUrl(null);
+    setPhotoUploadFailed(false);
+    setPhotoUploading(true);
+
+    const uploadedUrl = await uploadReportMedia(file);
+    setPhotoUploading(false);
+
+    if (uploadedUrl) {
+      setPhotoUploadedUrl(uploadedUrl);
+    } else {
+      // Upload failed or backend not configured — keep the local preview
+      // visible for the user's own reference, but never claim it's attached
+      // to the report or verified in any way.
+      setPhotoUploadFailed(true);
     }
   };
 
@@ -153,9 +157,19 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs font-semibold text-[#c2c6d7]">
             <span>Evidence & Imagery</span>
-            {photoPreview && (
-              <span className="text-[11px] text-[#40e56c] flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Telemetry Verified
+            {photoPreview && photoUploading && (
+              <span className="text-[11px] text-[#c2c6d7] flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Uploading…
+              </span>
+            )}
+            {photoPreview && !photoUploading && photoUploadedUrl && (
+              <span className="text-[11px] text-[#ffb68f] flex items-center gap-1">
+                <ShieldQuestion className="w-3 h-3" /> Attached, not yet verified
+              </span>
+            )}
+            {photoPreview && !photoUploading && photoUploadFailed && (
+              <span className="text-[11px] text-[#ffb4ab] flex items-center gap-1">
+                <ShieldQuestion className="w-3 h-3" /> Upload failed — not attached
               </span>
             )}
           </div>
@@ -168,7 +182,13 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
                 className="w-full h-full object-cover"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-2.5">
-                <span className="text-xs text-white font-mono">Captured: On-site verification</span>
+                <span className="text-xs text-white font-mono">
+                  {photoUploadedUrl
+                    ? 'Attached to report — content not verified'
+                    : photoUploadFailed
+                    ? 'Not saved — local preview only'
+                    : 'Uploading…'}
+                </span>
               </div>
             </div>
           ) : (
@@ -195,54 +215,7 @@ export const SegmentDetailSheet: React.FC<SegmentDetailSheetProps> = ({
           />
         </div>
 
-
-        {/* Audit trail — show your work */}
-        <div className="rounded-2xl border border-[#424754] bg-[#10131b] p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[#e1e2ed]">
-            <History size={16} className="text-blue-400" />
-            Status history
-            <span className="text-[10px] font-normal text-[#8b90a0] ml-auto">
-              Why this confidence?
-            </span>
-          </div>
-          {historyLoading && (
-            <p className="text-xs text-[#8b90a0]">Loading reports & votes…</p>
-          )}
-          {!historyLoading && history.length === 0 && (
-            <p className="text-xs text-[#8b90a0]">
-              No remote history yet (local seed or empty). After Supabase votes, each report and confirm appears here with trust level — not a black box.
-            </p>
-          )}
-          <ul className="space-y-2 max-h-40 overflow-y-auto">
-            {history.map((ev) => (
-              <li
-                key={ev.id}
-                className="flex gap-2 text-xs border-l-2 border-slate-600 pl-3 py-1"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-[#e1e2ed] font-medium">
-                    {ev.kind === 'report' && `Report: ${ev.type}`}
-                    {ev.kind === 'confirm' && 'Confirm (+signal)'}
-                    {ev.kind === 'refute' && 'Refute (−signal)'}
-                    {ev.hasMedia ? ' · media' : ''}
-                  </div>
-                  <div className="text-[#8b90a0] truncate">
-                    {ev.trustLabel || 'Anonymous'} · {new Date(ev.createdAt).toLocaleString()}
-                  </div>
-                  {ev.notes && (
-                    <div className="text-[#a0a4b8] mt-0.5 truncate">{ev.notes}</div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="text-[10px] text-[#6b7280] leading-snug">
-            Confidence decays over time without new evidence. Trust-weighted votes change the score more than new devices.
-          </p>
-        </div>
-
         {/* Primary Voting / Confirmation Actions */}
-
         <div className="flex gap-3">
           <button
             onClick={() => handleVote('confirmed')}
