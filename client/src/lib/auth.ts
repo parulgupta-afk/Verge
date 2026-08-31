@@ -40,12 +40,15 @@ export async function ensureAnonymousAuth(): Promise<{
     return authPromise;
   }
 
+  const shouldAttemptAnonAuth =
+    import.meta.env.VITE_ENABLE_ANONYMOUS_AUTH === 'true';
+
   authPromise = (async () => {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       let authUid = sessionData.session?.user?.id ?? null;
 
-      if (!authUid && !anonymousAuthDisabled) {
+      if (!authUid && shouldAttemptAnonAuth && !anonymousAuthDisabled) {
         try {
           const { data, error } = await supabase.auth.signInAnonymously();
           if (error) {
@@ -55,10 +58,10 @@ export async function ensureAnonymousAuth(): Promise<{
             ) {
               anonymousAuthDisabled = true;
               console.info(
-                '[Verge] Anonymous sign-ins are not enabled in Supabase project settings. Operating in guest mode with device ID.'
+                '[Verge] Anonymous sign-ins not enabled in Supabase project settings. Operating in guest mode with device ID.'
               );
             } else {
-              console.info('[Verge] Anonymous auth note:', error.message);
+              console.info('[Verge] Anonymous auth notice:', error.message);
             }
           } else {
             authUid = data.user?.id ?? null;
@@ -69,6 +72,7 @@ export async function ensureAnonymousAuth(): Promise<{
       }
 
       cachedAuthUid = authUid;
+
 
       if (authUid) {
         try {
