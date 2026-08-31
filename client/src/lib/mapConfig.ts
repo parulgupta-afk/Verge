@@ -1,5 +1,5 @@
 // Verge map configuration — India focused
-// 100% free stack: MapLibre GL + free styles/tiles (NO Mapbox account)
+// NO Mapbox. NO Carto API key. Pure OpenStreetMap raster tiles.
 
 export const INDIA_CENTER: [number, number] = [78.9629, 21.5937];
 export const INDIA_ZOOM = 4.5;
@@ -16,50 +16,18 @@ export const CITY_CENTERS = {
 export type CityKey = keyof typeof CITY_CENTERS;
 
 /**
- * Free map styles (pick one — no API key, no payment method)
+ * OpenStreetMap raster — free, no API key.
+ * (Carto dark_all now watermarks "API KEY REQUIRED" without a key — do not use.)
  */
-export const FREE_STYLE_URLS = {
-  cartoDark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-  openFreeMap: 'https://tiles.openfreemap.org/styles/liberty',
-  maplibreDemo: 'https://demotiles.maplibre.org/style.json',
-} as const;
-
-/** High-speed CARTO Dark Matter raster style — loads in milliseconds and matches Verge dark UI */
-export const DARK_MATTER_STYLE = {
-  version: 8 as const,
-  sources: {
-    'carto-dark': {
-      type: 'raster' as const,
-      tiles: [
-        'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
-        'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
-        'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}@2x.png',
-      ],
-      tileSize: 256,
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    {
-      id: 'carto-dark-layer',
-      type: 'raster' as const,
-      source: 'carto-dark',
-      minzoom: 0,
-      maxzoom: 20,
-    },
-  ],
-};
-
-/** Classic OSM raster style */
 export const OSM_RASTER_STYLE = {
   version: 8 as const,
   sources: {
     osm: {
       type: 'raster' as const,
       tiles: [
-        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',
@@ -75,9 +43,11 @@ export const OSM_RASTER_STYLE = {
   ],
 };
 
-/** Primary map style: Fast CARTO Dark Matter (reliable, instant, dark theme) */
-export const MAP_STYLE = DARK_MATTER_STYLE;
-export const MAP_STYLE_URL = FREE_STYLE_URLS.cartoDark;
+/** Optional: MapLibre demo style (no key) if OSM is blocked on a network */
+export const MAPLIBRE_DEMO_STYLE_URL = 'https://demotiles.maplibre.org/style.json';
+
+/** Primary style — OSM only, never Carto/Mapbox */
+export const MAP_STYLE = OSM_RASTER_STYLE;
 
 export const STATUS_COLORS = {
   blocked: '#ef4444',
@@ -85,4 +55,3 @@ export const STATUS_COLORS = {
   clear: '#22c55e',
   unknown: '#94a3b8',
 } as const;
-

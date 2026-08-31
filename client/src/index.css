@@ -77,3 +77,13 @@
 .animate-spin-slow {
   animation: spinSlow 8s linear infinite;
 }
+
+
+/* MapLibre must fill parent — zero height is the #1 blank-map cause */
+.maplibre-map-root,
+.maplibre-map-root .maplibregl-map,
+.maplibre-map-root .maplibregl-canvas-container,
+.maplibre-map-root canvas.maplibregl-canvas {
+  width: 100% !important;
+  height: 100% !important;
+}

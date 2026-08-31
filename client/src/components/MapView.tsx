@@ -4,7 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import {
   INDIA_CENTER,
   INDIA_ZOOM,
-  DARK_MATTER_STYLE,
+  MAP_STYLE,
+  OSM_RASTER_STYLE,
   STATUS_COLORS,
   CITY_CENTERS,
   CityKey,
@@ -211,7 +212,7 @@ export function MapView({
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: DARK_MATTER_STYLE as any,
+      style: MAP_STYLE as any,
       center: start.center,
       zoom: start.zoom,
       attributionControl: { compact: true },
@@ -298,8 +299,9 @@ export function MapView({
   }, [routeGeometry, mapReady]);
 
   return (
-    <div className={`relative w-full h-full min-h-[300px] ${className}`}>
+    <div className={`maplibre-map-root relative w-full h-full min-h-[300px] ${className}`}>
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
     </div>
   );
 }
+

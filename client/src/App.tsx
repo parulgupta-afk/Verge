@@ -292,7 +292,7 @@ export default function App() {
 
       {/* 2. MAIN MAP SCREEN */}
       {currentScreen === 'map' && (
-        <div className="relative w-full h-screen overflow-hidden flex flex-col">
+        <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
           {/* Top App Bar Navigation */}
           <NavigationHeader
             onSearchClick={() => setIsSearchOpen(true)}
@@ -304,7 +304,8 @@ export default function App() {
           />
 
           {/* Main Map Viewport — real MapLibre map (India) */}
-          <main className="flex-1 w-full h-full relative min-h-0">
+          <main className="relative flex-1 w-full min-h-0" style={{ height: '100%' }}>
+            <div className="absolute inset-0">
             <MapView
               segments={segments.filter(
                 (s) =>
@@ -323,6 +324,7 @@ export default function App() {
               trackUser={true}
               onUserLocation={(pos) => setUserLocation(pos)}
             />
+            </div>
 
             {/* Data source indicator */}
             <div className="absolute top-16 right-3 z-20 flex flex-col items-end gap-1 pointer-events-none">
