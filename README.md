@@ -17,3 +17,8 @@
 3. Or use map **Search** the same way
 
 Needs network for live suggestions. Rate-limit: we debounce 400ms.
+
+
+## Finish product gaps
+
+See **[docs/GO_LIVE.md](docs/GO_LIVE.md)** — Supabase migrations, deploy, what stays demo-only.

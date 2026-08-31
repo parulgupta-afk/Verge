@@ -84,6 +84,16 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
 
     if (error) {
       isSupabaseDatabaseReady = false;
+      // 404 / missing table = migrations not applied yet — expected until GO_LIVE step 1
+      const code = (error as any).code || (error as any).status;
+      const msg = error.message || String(error);
+      if (String(msg).includes('404') || code === '42P01' || code === 'PGRST116') {
+        console.info(
+          '[Verge] road_segments not found — run supabase migrations + seed (docs/GO_LIVE.md). Using local India seed.'
+        );
+      } else {
+        console.warn('[Verge] segments fetch:', msg);
+      }
       const fallback = city
         ? INDIA_SEED_SEGMENTS.filter((s) => s.city?.toLowerCase() === city.toLowerCase())
         : INDIA_SEED_SEGMENTS;
@@ -91,6 +101,7 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
       return {
         segments: fallback,
         isDbLive: false,
+        notice: 'Database not ready — local India seed. See docs/GO_LIVE.md',
       };
     }
 

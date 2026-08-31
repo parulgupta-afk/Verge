@@ -419,6 +419,73 @@ export default function App() {
             )}
 
             {/* Route confidence — transparent issues on *this* path */}
+
+            {showAdmin && (
+              <AdminDashboard
+                stats={computeAdminStats(segments)}
+                segments={segments}
+                heatmapOn={heatmapMode}
+                onToggleHeatmap={() => setHeatmapMode((v) => !v)}
+                onClose={() => setShowAdmin(false)}
+                onSelectSegment={(id) => {
+                  const seg = segments.find((s) => s.id === id);
+                  if (seg) {
+                    setSelectedSegment(seg);
+                    setShowAdmin(false);
+                  }
+                }}
+              />
+            )}
+
+            {showSocial && (
+              <SocialPanel
+                commutes={commutes}
+                onClose={() => setShowSocial(false)}
+                onNavigate={(c) => {
+                  setShowSocial(false);
+                  if (c.place.city === 'Delhi') setActiveCity('delhi');
+                  if (c.place.city === 'Bangalore') setActiveCity('bangalore');
+                  navigateToPlace(c.place);
+                }}
+                onRemove={(id) => setCommutes(removeCommute(id))}
+                onShareCurrent={async () => {
+                  if (!routeDestination) {
+                    setShareFeedback('Set a destination first (Directions), then share.');
+                    return;
+                  }
+                  const msg = await shareToClipboard(routeDestination);
+                  setShareFeedback(msg);
+                }}
+                canShare={Boolean(routeDestination)}
+                onJoinCode={(code) => {
+                  const payload = decodeShare(code);
+                  if (payload) {
+                    const place = placeFromShare(payload);
+                    setShowSocial(false);
+                    navigateToPlace(place);
+                    setShareFeedback('Joined shared destination');
+                  } else {
+                    setShareFeedback('Could not read that share code');
+                  }
+                }}
+                shareFeedback={shareFeedback}
+              />
+            )}
+
+            {showOfficialFeeds && (
+              <OfficialFeedsPanel
+                notices={OFFICIAL_NOTICES.filter(
+                  (n) =>
+                    (activeCity === 'delhi' && n.city === 'Delhi') ||
+                    (activeCity === 'bangalore' && n.city === 'Bangalore')
+                )}
+                cityLabel={activeCity === 'delhi' ? 'Delhi-NCR' : 'Bangalore'}
+                emergencyMode={emergencyMode}
+                onToggleEmergency={() => setEmergencyMode((v) => !v)}
+                onClose={() => setShowOfficialFeeds(false)}
+              />
+            )}
+
             {activeRoute && !selectedSegment && (
               <RouteConfidencePanel
                 destinationLabel={routeDestination?.name}
