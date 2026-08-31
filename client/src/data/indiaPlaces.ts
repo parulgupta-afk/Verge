@@ -4,7 +4,7 @@ export interface Place {
   id: string;
   name: string;
   area: string;
-  city: 'Delhi' | 'Bangalore';
+  city: 'Delhi' | 'Bangalore' | string;
   lng: number;
   lat: number;
 }
