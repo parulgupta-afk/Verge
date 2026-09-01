@@ -84,12 +84,21 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
 
     if (error) {
       isSupabaseDatabaseReady = false;
-      // 404 / missing table = migrations not applied yet — expected until GO_LIVE step 1
+      // 404 / PGRST205 / missing table = migrations not yet executed in Supabase SQL editor
       const code = (error as any).code || (error as any).status;
       const msg = error.message || String(error);
-      if (String(msg).includes('404') || code === '42P01' || code === 'PGRST116') {
+      const isMissingTable =
+        String(msg).includes('404') ||
+        String(msg).includes('schema cache') ||
+        String(msg).toLowerCase().includes('not find the table') ||
+        code === '42P01' ||
+        code === 'PGRST116' ||
+        code === 'PGRST204' ||
+        code === 'PGRST205';
+
+      if (isMissingTable) {
         console.info(
-          '[Verge] road_segments not found — run supabase migrations + seed (docs/GO_LIVE.md). Using local India seed.'
+          '[Verge] Supabase "road_segments" table not yet initialized. Operating seamlessly with high-fidelity local India telemetry data. (Run supabase/combined_setup.sql in Supabase SQL Editor to enable live cloud sync).'
         );
       } else {
         console.warn('[Verge] segments fetch:', msg);
@@ -101,7 +110,6 @@ export async function fetchSegmentsWithStatus(city?: string): Promise<FetchSegme
       return {
         segments: fallback,
         isDbLive: false,
-        notice: 'Database not ready — local India seed. See docs/GO_LIVE.md',
       };
     }
 

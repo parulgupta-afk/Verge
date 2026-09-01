@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="vGrad" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bgGrad)" />
+  <rect width="62" height="62" x="1" y="1" rx="15" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" />
+  
+  <!-- Stylized V Navigation Wave / Telemetry Pulse -->
+  <path d="M16 18 L32 48 L48 18" stroke="url(#vGrad)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="32" cy="48" r="4" fill="#38bdf8" />
+  <circle cx="32" cy="24" r="3" fill="#a855f7" />
+</svg>
